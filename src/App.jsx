@@ -20,7 +20,9 @@ import {
   Clock,
   ExternalLink,
   Copy,
-  CalendarCheck
+  CalendarCheck,
+  MessageSquare,
+  AlertTriangle
 } from 'lucide-react';
 
 export default function App() {
@@ -37,7 +39,7 @@ export default function App() {
   const queryParams = new URLSearchParams(window.location.search);
   const publicProId = queryParams.get('pro');
 
-  // Estados dos Dados Master
+  // Estados do Master
   const [activeTab, setActiveTab] = useState('master_profs');
   const [professionals, setProfessionals] = useState([]);
   const [licencas, setLicencas] = useState([]);
@@ -46,16 +48,13 @@ export default function App() {
   const [showAddProModal, setShowAddProModal] = useState(false);
   const [newProName, setNewProName] = useState('');
   const [newProEmail, setNewProEmail] = useState('');
+  const [newProPhone, setNewProPhone] = useState('');
   const [newProPassword, setNewProPassword] = useState('');
   const [planoValor, setPlanoValor] = useState('50.00');
   const [formaPagamento, setFormaPagamento] = useState('Pix');
   const [diasAcesso, setDiasAcesso] = useState(30);
   const [proModalError, setProModalError] = useState('');
   const [proModalSuccess, setProModalSuccess] = useState('');
-
-  // Modal Renovação / Lançamento Manual de Licença
-  const [showLicenseModal, setShowLicenseModal] = useState(false);
-  const [selectedPro, setSelectedPro] = useState(null);
 
   // Estados da Agenda do Profissional e Agendamento Público
   const [publicProProfile, setPublicProProfile] = useState(null);
@@ -91,7 +90,6 @@ export default function App() {
     }
   }, [publicProId]);
 
-  // Carregar dados da página pública
   const loadPublicPageData = async (proId) => {
     try {
       const { data: pro } = await supabase.from('perfis').select('*').eq('id', proId).single();
@@ -126,10 +124,33 @@ export default function App() {
   const loadAppData = async () => {
     if (userProfile?.role === 'master') {
       const { data: profs } = await supabase.from('perfis').select('*').order('created_at', { ascending: false });
-      const { data: lics } = await supabase.from('licencas').select('*, perfis(nome, email)').order('created_at', { ascending: false });
+      const { data: lics } = await supabase.from('licencas').select('*, perfis(nome, email, telefone)').order('created_at', { ascending: false });
       setProfessionals(profs || []);
       setLicencas(lics || []);
     }
+  };
+
+  // Calcular dias restantes até o vencimento
+  const getDiasRestantes = (dataVencimento) => {
+    if (!dataVencimento) return 0;
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    const venc = new Date(dataVencimento);
+    venc.setHours(0, 0, 0, 0);
+    const diffTime = venc - hoje;
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  };
+
+  // Função para Enviar Lembrete via WhatsApp
+  const enviarLembreteWhatsApp = (nomePro, telefonePro, dataVenc, diasRestantes) => {
+    const numLimpo = (telefonePro || '').replace(/\D/g, '');
+    let msg = `Olá, ${nomePro}! %0A%0ASeu acesso ao AgendaPro Hair vence em ${diasRestantes <= 0 ? 'HOJE' : diasRestantes + ' dias'} (${dataVenc}).%0A%0APara manter sua agenda ativa sem interrupções, realize a renovação da sua licença mensal.%0A%0AQualquer dúvida estamos à disposição!`;
+
+    const url = numLimpo 
+      ? `https://wa.me/55${numLimpo}?text=${msg}`
+      : `https://wa.me/?text=${msg}`;
+
+    window.open(url, '_blank');
   };
 
   // Login
@@ -172,6 +193,7 @@ export default function App() {
           id: authData.user.id,
           nome: newProName,
           email: newProEmail,
+          telefone: newProPhone,
           role: 'professional',
           status: 'active'
         }]);
@@ -180,7 +202,7 @@ export default function App() {
         const dataVenc = new Date();
         dataVenc.setDate(dataVenc.getDate() + parseInt(diasAcesso));
 
-        // 3. Registrar Licença e Pagamento
+        // 3. Registrar Licença
         await supabase.from('licencas').insert([{
           profissional_id: authData.user.id,
           plano: 'Mensal',
@@ -194,6 +216,7 @@ export default function App() {
         setProModalSuccess('Profissional e licença registradas com sucesso!');
         setNewProName('');
         setNewProEmail('');
+        setNewProPhone('');
         setNewProPassword('');
         loadAppData();
         setTimeout(() => setShowAddProModal(false), 1500);
@@ -203,11 +226,10 @@ export default function App() {
     }
   };
 
-  // Registrar Agendamento Público
+  // Agendamento Público
   const handlePublicBooking = async (e) => {
     e.preventDefault();
     try {
-      // Registrar ou Buscar Cliente
       let { data: cli } = await supabase.from('clientes')
         .select('*')
         .eq('telefone', clientPhone)
@@ -223,7 +245,6 @@ export default function App() {
         cli = newCli;
       }
 
-      // Registrar Agendamento
       await supabase.from('agendamentos').insert([{
         cliente_id: cli.id,
         profissional_id: publicProId,
@@ -354,6 +375,12 @@ export default function App() {
   // ==========================================
   if (userProfile.role === 'master') {
     const totalRecebido = licencas.reduce((acc, curr) => acc + (parseFloat(curr.valor) || 0), 0);
+    
+    // Filtrar licenças com vencimento nos próximos 7 dias (ou vencidas)
+    const licencasProximosVencimentos = licencas.filter(l => {
+      const dias = getDiasRestantes(l.data_vencimento);
+      return dias <= 7;
+    });
 
     return (
       <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row font-sans">
@@ -373,6 +400,16 @@ export default function App() {
             <button onClick={() => setActiveTab('master_finance')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'master_finance' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
               <DollarSign className="w-5 h-5" /> Controle Financeiro
             </button>
+            <button onClick={() => setActiveTab('master_vencimentos')} className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'master_vencimentos' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-400" /> Próx. Vencimentos
+              </div>
+              {licencasProximosVencimentos.length > 0 && (
+                <span className="bg-amber-500 text-slate-900 font-bold px-2 py-0.5 rounded-full text-xs">
+                  {licencasProximosVencimentos.length}
+                </span>
+              )}
+            </button>
           </nav>
 
           <div className="p-4 border-t border-slate-800">
@@ -383,12 +420,13 @@ export default function App() {
         </aside>
 
         <main className="flex-1 p-8 overflow-y-auto">
+          {/* ABA PROFISSIONAIS & LINKS */}
           {activeTab === 'master_profs' && (
             <div>
               <div className="flex justify-between items-center mb-6">
                 <div>
-                  <h2 className="text-2xl font-bold text-slate-900">Profissionais & Links de Agendamento</h2>
-                  <p className="text-sm text-slate-500 mt-1">Gerencie os acessos das cabeleireiras e seus links públicos para os clientes.</p>
+                  <h2 className="text-2xl font-bold text-slate-900">Profissionais & Licenças Cadastradas</h2>
+                  <p className="text-sm text-slate-500 mt-1">Gerencie os acessos, licenças e links de agendamento das cabeleireiras.</p>
                 </div>
                 <button onClick={() => setShowAddProModal(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 shadow">
                   <UserPlus className="w-4 h-4" /> Cadastrar Novo Profissional
@@ -397,27 +435,52 @@ export default function App() {
 
               <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4">
                 {professionals.map(p => {
+                  const licencaPro = licencas.find(l => l.profissional_id === p.id);
+                  const diasRestantes = licencaPro ? getDiasRestantes(licencaPro.data_vencimento) : 0;
                   const linkPublico = `${window.location.origin}/?pro=${p.id}`;
+
                   return (
                     <div key={p.id} className="p-4 border rounded-xl bg-slate-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                      <div>
-                        <h4 className="font-bold text-slate-900 text-base">{p.nome}</h4>
-                        <p className="text-xs text-slate-500">{p.email} • Status: <span className="uppercase font-semibold text-indigo-600">{p.status}</span></p>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-slate-900 text-base">{p.nome}</h4>
+                          <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${p.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                            {p.status === 'active' ? 'Ativo' : 'Bloqueado'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500">{p.email} • WhatsApp: {p.telefone || 'Não informado'}</p>
                         
+                        {licencaPro && (
+                          <div className="flex items-center gap-3 text-xs text-slate-600 pt-1">
+                            <span>Valor Licença: <strong className="text-emerald-700">R$ {parseFloat(licencaPro.valor).toFixed(2)}</strong></span>
+                            <span>• Vencimento: <strong>{licencaPro.data_vencimento}</strong></span>
+                            <span className={`font-bold px-2 py-0.5 rounded ${diasRestantes <= 5 ? 'bg-rose-100 text-rose-700' : 'bg-indigo-50 text-indigo-700'}`}>
+                              {diasRestantes <= 0 ? 'Vencido' : `${diasRestantes} dias restantes`}
+                            </span>
+                          </div>
+                        )}
+
                         {p.role !== 'master' && (
                           <div className="mt-2 flex items-center gap-2 text-xs bg-white p-2 rounded-lg border text-slate-600">
                             <span className="font-semibold text-slate-700">Link Público:</span>
                             <span className="truncate max-w-xs text-indigo-600">{linkPublico}</span>
-                            <button 
-                              onClick={() => { navigator.clipboard.writeText(linkPublico); alert('Link copiado!'); }} 
-                              className="p-1 hover:bg-slate-100 rounded text-slate-500" 
-                              title="Copiar Link"
-                            >
+                            <button onClick={() => { navigator.clipboard.writeText(linkPublico); alert('Link copiado!'); }} className="p-1 hover:bg-slate-100 rounded text-slate-500" title="Copiar Link">
                               <Copy className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         )}
                       </div>
+
+                      {p.role !== 'master' && (
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => enviarLembreteWhatsApp(p.nome, p.telefone, licencaPro?.data_vencimento, diasRestantes)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow"
+                          >
+                            <MessageSquare className="w-4 h-4" /> Lembrete Whats
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -425,11 +488,12 @@ export default function App() {
             </div>
           )}
 
+          {/* ABA CONTROLE FINANCEIRO */}
           {activeTab === 'master_finance' && (
             <div>
               <div className="mb-6">
-                <h2 className="text-2xl font-bold text-slate-900">Controle Financeiro & Licenças</h2>
-                <p className="text-sm text-slate-500 mt-1">Acompanhe quem pagou, datas de vencimento e métodos de pagamento.</p>
+                <h2 className="text-2xl font-bold text-slate-900">Controle Financeiro de Licenças</h2>
+                <p className="text-sm text-slate-500 mt-1">Histórico completo de pagamentos e liquidações das cabeleireiras.</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
@@ -459,27 +523,98 @@ export default function App() {
                       <th className="p-3">Forma Pagto</th>
                       <th className="p-3">Valor</th>
                       <th className="p-3">Vencimento</th>
-                      <th className="p-3">Status</th>
+                      <th className="p-3">Dias Restantes</th>
+                      <th className="p-3">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {licencas.map(l => (
-                      <tr key={l.id} className="hover:bg-slate-50">
-                        <td className="p-3 font-semibold text-slate-900">{l.perfis?.nome || 'Cabeleireira'}</td>
-                        <td className="p-3 text-slate-600">{l.data_pagamento}</td>
-                        <td className="p-3 text-slate-600"><span className="px-2 py-1 bg-slate-100 border rounded text-xs">{l.forma_pagamento}</span></td>
-                        <td className="p-3 font-bold text-emerald-700">R$ {parseFloat(l.valor).toFixed(2)}</td>
-                        <td className="p-3 text-slate-600 font-medium">{l.data_vencimento}</td>
-                        <td className="p-3">
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${l.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
-                            {l.status === 'active' ? 'Ativo' : 'Vencido/Desistiu'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {licencas.map(l => {
+                      const dias = getDiasRestantes(l.data_vencimento);
+                      return (
+                        <tr key={l.id} className="hover:bg-slate-50">
+                          <td className="p-3 font-semibold text-slate-900">{l.perfis?.nome || 'Cabeleireira'}</td>
+                          <td className="p-3 text-slate-600">{l.data_pagamento}</td>
+                          <td className="p-3 text-slate-600"><span className="px-2 py-1 bg-slate-100 border rounded text-xs">{l.forma_pagamento}</span></td>
+                          <td className="p-3 font-bold text-emerald-700">R$ {parseFloat(l.valor).toFixed(2)}</td>
+                          <td className="p-3 text-slate-600 font-medium">{l.data_vencimento}</td>
+                          <td className="p-3">
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${dias <= 5 ? 'bg-rose-100 text-rose-800' : 'bg-indigo-100 text-indigo-800'}`}>
+                              {dias <= 0 ? 'Vencido' : `${dias} dias`}
+                            </span>
+                          </td>
+                          <td className="p-3">
+                            <button 
+                              onClick={() => enviarLembreteWhatsApp(l.perfis?.nome, l.perfis?.telefone, l.data_vencimento, dias)}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-2.5 py-1.5 rounded font-semibold flex items-center gap-1"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" /> Whats
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+
+          {/* ABA PRÓXIMOS VENCIMENTOS (7 DIAS) */}
+          {activeTab === 'master_vencimentos' && (
+            <div>
+              <div className="mb-6">
+                <h2 className="text-2xl font-bold text-slate-900">Próximos Vencimentos (Até 7 Dias)</h2>
+                <p className="text-sm text-slate-500 mt-1">Lista de profissionais com renovação próxima para envio de cobrança preventiva.</p>
+              </div>
+
+              {licencasProximosVencimentos.length === 0 ? (
+                <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
+                  <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-2" />
+                  <p className="font-semibold text-slate-800">Nenhum vencimento para os próximos 7 dias!</p>
+                  <p className="text-xs text-slate-500 mt-1">Todas as licenças estão em dia com prazo superior a 7 dias.</p>
+                </div>
+              ) : (
+                <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-amber-50 text-amber-900 uppercase text-xs">
+                      <tr>
+                        <th className="p-3">Profissional</th>
+                        <th className="p-3">E-mail / Whats</th>
+                        <th className="p-3">Data Vencimento</th>
+                        <th className="p-3">Prazo</th>
+                        <th className="p-3">Valor Mensalidade</th>
+                        <th className="p-3">Cobrança WhatsApp</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {licencasProximosVencimentos.map(l => {
+                        const dias = getDiasRestantes(l.data_vencimento);
+                        return (
+                          <tr key={l.id} className="hover:bg-slate-50">
+                            <td className="p-3 font-bold text-slate-900">{l.perfis?.nome}</td>
+                            <td className="p-3 text-slate-600 text-xs">{l.perfis?.email}<br/>{l.perfis?.telefone || 'Sem Whats'}</td>
+                            <td className="p-3 font-semibold text-slate-800">{l.data_vencimento}</td>
+                            <td className="p-3">
+                              <span className={`px-3 py-1 rounded-full text-xs font-bold ${dias <= 0 ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'}`}>
+                                {dias <= 0 ? 'Vencido' : `Vence em ${dias} dias`}
+                              </span>
+                            </td>
+                            <td className="p-3 font-bold text-emerald-700">R$ {parseFloat(l.valor).toFixed(2)}</td>
+                            <td className="p-3">
+                              <button 
+                                onClick={() => enviarLembreteWhatsApp(l.perfis?.nome, l.perfis?.telefone, l.data_vencimento, dias)}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 shadow"
+                              >
+                                <MessageSquare className="w-4 h-4" /> Cobrar via Whats
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </main>
@@ -508,9 +643,15 @@ export default function App() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Senha Inicial</label>
-                  <input type="password" required value={newProPassword} onChange={e => setNewProPassword(e.target.value)} placeholder="Mínimo 6 caracteres" className="w-full border rounded-lg p-2.5 text-sm" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp (DDD + Número)</label>
+                    <input type="tel" required value={newProPhone} onChange={e => setNewProPhone(e.target.value)} placeholder="47999999999" className="w-full border rounded-lg p-2.5 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Senha Inicial</label>
+                    <input type="password" required value={newProPassword} onChange={e => setNewProPassword(e.target.value)} placeholder="Mínimo 6 caracteres" className="w-full border rounded-lg p-2.5 text-sm" />
+                  </div>
                 </div>
 
                 <div className="border-t pt-3 mt-3">
