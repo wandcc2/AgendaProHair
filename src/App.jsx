@@ -175,8 +175,8 @@ export default function App() {
       return;
     }
 
-    const linkPublico = `${window.location.origin}/?pro=${userProfile.id}`;
-    const msg = `Olá, ${nomeCliente}! %0A%0A Agora você pode agendar seus horários no salão *${userProfile.nome}* diretamente pelo nosso site de agendamento online! %0A%0A Acessa o link abaixo para escolher o melhor dia e horário:%0A${linkPublico}%0A%0ATe esperamos! 😊`;
+    const linkPublico = `${window.location.origin}/?pro=${userProfile?.id}`;
+    const msg = `Olá, ${nomeCliente}! %0A%0A Agora você pode agendar seus horários no salão *${userProfile?.nome}* diretamente pelo nosso site de agendamento online! %0A%0A Acesse o link abaixo para escolher o melhor dia e horário:%0A${linkPublico}%0A%0ATe esperamos! 😊`;
 
     window.open(`https://wa.me/55${numLimpo}?text=${msg}`, '_blank');
   };
@@ -349,7 +349,7 @@ export default function App() {
     );
   }
 
-  // PÁGINA PÚBLICA DE AGENDAMENTO
+  // PÁGINA PÚBLICA DE AGENDAMENTO (?pro=UUID)
   if (publicProId) {
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
@@ -563,16 +563,17 @@ export default function App() {
     );
   }
 
-  // PAINEL DA CABELEIREIRA / PROFISSIONAL
+  // GERAR LINK PÚBLICO DA PROFISSIONAL LOGADA
   const proLinkPublico = `${window.location.origin}/?pro=${userProfile?.id}`;
 
+  // PAINEL DA CABELEIREIRA / PROFISSIONAL
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row font-sans">
       <aside className="w-full md:w-64 bg-slate-900 text-slate-100 flex flex-col border-r border-slate-800">
         <div className="p-6 border-b border-slate-800 flex items-center gap-3">
           <div className="p-2 bg-indigo-600 rounded-lg text-white"><Scissors className="w-6 h-6" /></div>
           <div>
-            <h1 className="font-bold text-lg leading-tight">{userProfile.nome}</h1>
+            <h1 className="font-bold text-lg leading-tight">{userProfile?.nome}</h1>
             <p className="text-xs text-slate-400">Agenda Profissional</p>
           </div>
         </div>
@@ -612,7 +613,7 @@ export default function App() {
 
           <div className="flex items-center gap-2">
             <button 
-              onClick={() => { navigator.clipboard.writeText(proLinkPublico); alert('Link público copiado com sucesso!'); }} 
+              onClick={() => { navigator.clipboard.writeText(proLinkPublico); alert('Link público copiado!'); }} 
               className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-4 py-2.5 rounded-lg font-semibold flex items-center gap-2 shadow transition"
             >
               <Copy className="w-4 h-4" /> Copiar Link
