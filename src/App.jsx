@@ -25,7 +25,10 @@ import {
   Trash2,
   ExternalLink,
   Share2,
-  UserCheck
+  ChevronDown,
+  ChevronUp,
+  Check,
+  X
 } from 'lucide-react';
 
 const SUPABASE_URL = 'https://ujdaesnmqhkzefqdwygk.supabase.co';
@@ -70,15 +73,18 @@ export default function App() {
   const [proClients, setProClients] = useState([]);
   const [proServices, setProServices] = useState([]);
   const [proAppointments, setProAppointments] = useState([]);
+  const [expandedServiceId, setExpandedServiceId] = useState(null);
 
   // Modal Criar/Editar Serviço
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [editingServiceId, setEditingServiceId] = useState(null);
   const [serviceName, setServiceName] = useState('');
   const [servicePrice, setServicePrice] = useState('');
+  const [serviceDesc, setServiceDesc] = useState('');
+  const [serviceDuration, setServiceDuration] = useState('30');
   const [serviceError, setServiceError] = useState('');
 
-  // Modal Novo Cliente (Aba Clientes)
+  // Modal Novo Cliente
   const [showAddClientModal, setShowAddClientModal] = useState(false);
   const [newClientName, setNewClientName] = useState('');
   const [newClientPhone, setNewClientPhone] = useState('');
@@ -102,6 +108,7 @@ export default function App() {
   const [selectedService, setSelectedService] = useState('');
   const [bookingDate, setBookingDate] = useState('');
   const [bookingTime, setBookingTime] = useState('');
+  const [publicFormaPagto, setPublicFormaPagto] = useState('Pix no Local');
   const [publicSuccess, setPublicSuccess] = useState(false);
 
   useEffect(() => {
@@ -175,7 +182,6 @@ export default function App() {
     }
   };
 
-  // Enviar Link via WhatsApp
   const enviarLinkAgendamentoWhats = (nomeCliente, telefoneCliente) => {
     const numLimpo = (telefoneCliente || '').replace(/\D/g, '');
     if (!numLimpo) {
@@ -189,43 +195,46 @@ export default function App() {
     window.open(`https://wa.me/55${numLimpo}?text=${msg}`, '_blank');
   };
 
-  // Abrir Modal de Novo Serviço
   const handleOpenAddServiceModal = () => {
     setEditingServiceId(null);
     setServiceName('');
     setServicePrice('');
+    setServiceDesc('');
+    setServiceDuration('30');
     setServiceError('');
     setShowServiceModal(true);
   };
 
-  // Abrir Modal de Edição de Serviço
   const handleOpenEditServiceModal = (srv) => {
     setEditingServiceId(srv.id);
     setServiceName(srv.nome);
     setServicePrice(srv.preco);
+    setServiceDesc(srv.descricao || '');
+    setServiceDuration(srv.duracao_minutos || '30');
     setServiceError('');
     setShowServiceModal(true);
   };
 
-  // Salvar (Criar ou Atualizar) Serviço / Produto
   const handleSaveService = async (e) => {
     e.preventDefault();
     setServiceError('');
 
     try {
       if (editingServiceId) {
-        // Atualizar
         const { error } = await supabase.from('servicos').update({
           nome: serviceName,
-          preco: parseFloat(servicePrice)
+          preco: parseFloat(servicePrice),
+          descricao: serviceDesc,
+          duracao_minutos: parseInt(serviceDuration)
         }).eq('id', editingServiceId);
 
         if (error) throw error;
       } else {
-        // Criar
         const { error } = await supabase.from('servicos').insert([{
           nome: serviceName,
           preco: parseFloat(servicePrice),
+          descricao: serviceDesc,
+          duracao_minutos: parseInt(serviceDuration),
           profissional_id: userProfile.id
         }]);
 
@@ -235,6 +244,7 @@ export default function App() {
       setShowServiceModal(false);
       setServiceName('');
       setServicePrice('');
+      setServiceDesc('');
       setEditingServiceId(null);
       await loadAppData();
     } catch (err) {
@@ -242,7 +252,6 @@ export default function App() {
     }
   };
 
-  // Excluir Serviço
   const handleDeleteService = async (serviceId) => {
     if (window.confirm('Deseja realmente remover este serviço/produto?')) {
       await supabase.from('servicos').delete().eq('id', serviceId);
@@ -250,7 +259,16 @@ export default function App() {
     }
   };
 
-  // Cadastrar Cliente Manualmente
+  // Alterar Status do Agendamento (Aprovar / Recusar)
+  const handleUpdateApptStatus = async (apptId, newStatus) => {
+    const { error } = await supabase.from('agendamentos').update({ status: newStatus }).eq('id', apptId);
+    if (!error) {
+      loadAppData();
+    } else {
+      alert('Erro ao atualizar status do agendamento.');
+    }
+  };
+
   const handleAddClient = async (e) => {
     e.preventDefault();
     setClientError('');
@@ -273,7 +291,6 @@ export default function App() {
     }
   };
 
-  // Cadastrar Novo Profissional (Master)
   const handleCreateProfessional = async (e) => {
     e.preventDefault();
     setProModalError('');
@@ -325,7 +342,6 @@ export default function App() {
     }
   };
 
-  // Cadastrar Agendamento Manual
   const handleAddManualAppointment = async (e) => {
     e.preventDefault();
     try {
@@ -363,6 +379,55 @@ export default function App() {
       loadAppData();
     } catch (err) {
       alert('Erro ao criar agendamento: ' + err.message);
+    }
+  };
+
+  // Submissão do Agendamento Público pelo Cliente
+  const handlePublicBookingSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      // 1. Validar se o horário já está ocupado por agendamento APROVADO/CONFIRMADO
+      const { data: busy } = await supabase.from('agendamentos')
+        .select('*')
+        .eq('profissional_id', publicProId)
+        .eq('data', bookingDate)
+        .eq('horario', bookingTime)
+        .eq('status', 'confirmado');
+
+      if (busy && busy.length > 0) {
+        alert('Este horário já foi aprovado e agendado para outra cliente. Por favor, escolha outro horário.');
+        return;
+      }
+
+      let { data: cli } = await supabase.from('clientes')
+        .select('*')
+        .eq('telefone', clientPhone)
+        .eq('profissional_id', publicProId)
+        .maybeSingle();
+
+      if (!cli) {
+        const { data: newCli } = await supabase.from('clientes').insert([{ 
+          nome: clientName, 
+          telefone: clientPhone, 
+          profissional_id: publicProId 
+        }]).select().single();
+        cli = newCli;
+      }
+
+      // 2. Gravar agendamento com status PENDENTE de aprovação
+      await supabase.from('agendamentos').insert([{ 
+        cliente_id: cli.id, 
+        profissional_id: publicProId, 
+        servico_id: selectedService, 
+        data: bookingDate, 
+        horario: bookingTime, 
+        forma_pagamento: publicFormaPagto,
+        status: 'pendente' 
+      }]);
+
+      setPublicSuccess(true);
+    } catch (e) {
+      alert('Erro ao solicitar agendamento. Tente novamente.');
     }
   };
 
@@ -416,28 +481,22 @@ export default function App() {
               <Scissors className="w-7 h-7" />
             </div>
             <h1 className="text-2xl font-bold text-slate-900">{publicProProfile?.nome || 'Agenda Online'}</h1>
-            <p className="text-xs text-slate-500 mt-1">Selecione o serviço e o horário desejado</p>
+            <p className="text-xs text-slate-500 mt-1">Solicite o seu agendamento online</p>
           </div>
 
           {publicSuccess ? (
             <div className="text-center py-8 space-y-3">
               <CheckCircle2 className="w-16 h-16 text-emerald-500 mx-auto" />
-              <h2 className="text-xl font-bold text-slate-900">Agendamento Realizado!</h2>
-              <p className="text-sm text-slate-600">Seu agendamento foi gravado na agenda do salão.</p>
+              <h2 className="text-xl font-bold text-slate-900">Solicitação Enviada!</h2>
+              <p className="text-sm text-slate-600">Sua solicitação de agendamento foi enviada. O salão confirmará em breve!</p>
+              <button onClick={() => setPublicSuccess(false)} className="mt-4 bg-indigo-600 text-white px-6 py-2 rounded-lg text-sm font-semibold">
+                Solicitar Outro Agendamento
+              </button>
             </div>
           ) : (
-            <form onSubmit={async (e) => {
-              e.preventDefault();
-              let { data: cli } = await supabase.from('clientes').select('*').eq('telefone', clientPhone).eq('profissional_id', publicProId).maybeSingle();
-              if (!cli) {
-                const { data: newCli } = await supabase.from('clientes').insert([{ nome: clientName, telefone: clientPhone, profissional_id: publicProId }]).select().single();
-                cli = newCli;
-              }
-              await supabase.from('agendamentos').insert([{ cliente_id: cli.id, profissional_id: publicProId, servico_id: selectedService, data: bookingDate, horario: bookingTime, status: 'confirmado' }]);
-              setPublicSuccess(true);
-            }} className="space-y-4">
+            <form onSubmit={handlePublicBookingSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Seu Nome</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Seu Nome Completo</label>
                 <input type="text" required value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Ex: Ana Maria" className="w-full border rounded-lg p-3 text-sm" />
               </div>
               <div>
@@ -448,9 +507,14 @@ export default function App() {
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Serviço / Produto</label>
                 <select required value={selectedService} onChange={e => setSelectedService(e.target.value)} className="w-full border rounded-lg p-3 text-sm">
                   <option value="">Selecione o serviço...</option>
-                  {publicServices.map(s => <option key={s.id} value={s.id}>{s.nome} - R$ {parseFloat(s.preco).toFixed(2)}</option>)}
+                  {publicServices.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.nome} — R$ {parseFloat(s.preco).toFixed(2)} ({s.duracao_minutos || 30} min)
+                    </option>
+                  ))}
                 </select>
               </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Data</label>
@@ -461,8 +525,18 @@ export default function App() {
                   <input type="time" required value={bookingTime} onChange={e => setBookingTime(e.target.value)} className="w-full border rounded-lg p-3 text-sm" />
                 </div>
               </div>
-              <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl transition shadow">
-                Confirmar Agendamento
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Forma de Pagamento no Salão</label>
+                <select value={publicFormaPagto} onChange={e => setPublicFormaPagto(e.target.value)} className="w-full border rounded-lg p-3 text-sm">
+                  <option value="Pix no Local">Pix no Local</option>
+                  <option value="Cartão de Crédito/Débito">Cartão de Crédito/Débito</option>
+                  <option value="Dinheiro">Dinheiro</option>
+                </select>
+              </div>
+
+              <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl transition shadow-lg mt-2">
+                Solicitar Agendamento
               </button>
             </form>
           )}
@@ -655,7 +729,7 @@ export default function App() {
       </aside>
 
       <main className="flex-1 p-8 overflow-y-auto">
-        {/* CARD EM DESTAQUE COM O LINK PÚBLICO */}
+        {/* CARD DESTAQUE LINK PÚBLICO */}
         <div className="bg-gradient-to-r from-indigo-900 to-slate-900 text-white p-6 rounded-2xl shadow-lg mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border border-indigo-700/50">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -692,7 +766,7 @@ export default function App() {
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-2xl font-bold text-slate-900">Meus Agendamentos</h2>
-                <p className="text-sm text-slate-500 mt-1">Gerencie os horários marcados e envie lembretes via WhatsApp.</p>
+                <p className="text-sm text-slate-500 mt-1">Aprove solicitações ou cadastre agendamentos manuais.</p>
               </div>
               <button 
                 onClick={() => setShowAddApptModal(true)}
@@ -709,27 +783,53 @@ export default function App() {
                 proAppointments.map(a => (
                   <div key={a.id} className="p-4 border rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center bg-slate-50 gap-4">
                     <div>
-                      <h4 className="font-bold text-slate-900 text-base">{a.clientes?.nome}</h4>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-slate-900 text-base">{a.clientes?.nome}</h4>
+                        <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold uppercase ${
+                          a.status === 'confirmado' ? 'bg-emerald-100 text-emerald-800' :
+                          a.status === 'pendente' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'
+                        }`}>
+                          {a.status === 'confirmado' ? 'Aprovado' : a.status === 'pendente' ? 'Aguardando Aprovação' : 'Cancelado'}
+                        </span>
+                      </div>
                       <p className="text-xs text-slate-500">WhatsApp: {a.clientes?.telefone || 'Não informado'}</p>
                       <p className="text-xs text-indigo-600 font-semibold mt-1">
                         Serviço: {a.servicos?.nome} — R$ {parseFloat(a.servicos?.preco || 0).toFixed(2)}
                       </p>
+                      {a.forma_pagamento && (
+                        <p className="text-xs text-slate-500 font-medium">Pagamento: <strong className="text-slate-700">{a.forma_pagamento}</strong></p>
+                      )}
                     </div>
 
-                    <div className="flex items-center gap-4">
+                    <div className="flex flex-wrap items-center gap-3">
                       <div className="text-right">
                         <span className="font-bold text-slate-900 block text-sm">{a.data} às {a.horario}</span>
-                        <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-semibold uppercase">
-                          {a.status}
-                        </span>
                       </div>
 
-                      <button 
-                        onClick={() => enviarConfirmacaoWhatsApp(a.clientes?.nome, a.clientes?.telefone, a.data, a.horario, a.servicos?.nome)}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow"
-                      >
-                        <MessageSquare className="w-4 h-4" /> Solicitar Confirmação
-                      </button>
+                      {/* Botões de Aprovação se estiver Pendente */}
+                      {a.status === 'pendente' ? (
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => handleUpdateApptStatus(a.id, 'confirmado')}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-2 rounded-lg font-bold flex items-center gap-1 shadow"
+                          >
+                            <Check className="w-4 h-4" /> Aprovar
+                          </button>
+                          <button 
+                            onClick={() => handleUpdateApptStatus(a.id, 'cancelado')}
+                            className="bg-rose-600 hover:bg-rose-700 text-white text-xs px-3 py-2 rounded-lg font-bold flex items-center gap-1 shadow"
+                          >
+                            <X className="w-4 h-4" /> Recusar
+                          </button>
+                        </div>
+                      ) : (
+                        <button 
+                          onClick={() => enviarConfirmacaoWhatsApp(a.clientes?.nome, a.clientes?.telefone, a.data, a.horario, a.servicos?.nome)}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow"
+                        >
+                          <MessageSquare className="w-4 h-4" /> Lembrete Whats
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))
@@ -738,13 +838,13 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB SERVIÇOS & PRODUTOS */}
+        {/* TAB SERVIÇOS & PRODUTOS EXPANSÍVEL (ACCORDION) */}
         {proTab === 'servicos' && (
           <div>
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-2xl font-bold text-slate-900">Serviços & Produtos</h2>
-                <p className="text-sm text-slate-500 mt-1">Cadastre, edite ou remova serviços oferecidos no seu salão.</p>
+                <p className="text-sm text-slate-500 mt-1">Clique sobre o item para ver a descrição completa e a duração.</p>
               </div>
               <button 
                 onClick={handleOpenAddServiceModal} 
@@ -758,30 +858,59 @@ export default function App() {
               {proServices.length === 0 ? (
                 <p className="text-slate-500 text-sm">Nenhum serviço ou produto cadastrado ainda.</p>
               ) : (
-                proServices.map(s => (
-                  <div key={s.id} className="p-4 border rounded-xl flex justify-between items-center bg-slate-50">
-                    <span className="font-bold text-slate-900 text-base">{s.nome}</span>
-                    <div className="flex items-center gap-3">
-                      <span className="font-bold text-emerald-700 text-base mr-2">R$ {parseFloat(s.preco).toFixed(2)}</span>
-                      
-                      <button 
-                        onClick={() => handleOpenEditServiceModal(s)}
-                        className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
-                        title="Editar Serviço"
+                proServices.map(s => {
+                  const isExpanded = expandedServiceId === s.id;
+                  return (
+                    <div key={s.id} className="border rounded-xl bg-slate-50 overflow-hidden transition">
+                      {/* Linha principal clicável para expandir */}
+                      <div 
+                        onClick={() => setExpandedServiceId(isExpanded ? null : s.id)}
+                        className="p-4 flex justify-between items-center cursor-pointer hover:bg-slate-100/80 transition"
                       >
-                        <Edit className="w-4 h-4" />
-                      </button>
+                        <div className="flex items-center gap-3">
+                          {isExpanded ? <ChevronUp className="w-5 h-5 text-indigo-600" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
+                          <span className="font-bold text-slate-900 text-base">{s.nome}</span>
+                        </div>
 
-                      <button 
-                        onClick={() => handleDeleteService(s.id)}
-                        className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                        title="Excluir Serviço"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                        <div className="flex items-center gap-4">
+                          <span className="font-bold text-emerald-700 text-base">R$ {parseFloat(s.preco).toFixed(2)}</span>
+                          
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleOpenEditServiceModal(s); }}
+                            className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+                            title="Editar Serviço"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleDeleteService(s.id); }}
+                            className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                            title="Excluir Serviço"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Bloco Expandido com Descrição e Tempo de Procedimento */}
+                      {isExpanded && (
+                        <div className="p-4 border-t bg-white space-y-2 text-sm text-slate-600">
+                          <div className="flex items-center gap-2 font-semibold text-slate-700">
+                            <Clock className="w-4 h-4 text-indigo-600" />
+                            <span>Tempo de Procedimento: <strong className="text-slate-900">{s.duracao_minutos || 30} minutos</strong></span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-slate-700 block mb-1">Descrição do Serviço/Produto:</span>
+                            <p className="bg-slate-50 p-3 rounded-lg border text-slate-600 text-xs leading-relaxed">
+                              {s.descricao || 'Nenhuma descrição informada para este item.'}
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -854,17 +983,42 @@ export default function App() {
                 />
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Preço (R$)</label>
+                  <input 
+                    type="number" 
+                    step="0.01" 
+                    required 
+                    value={servicePrice} 
+                    onChange={e => setServicePrice(e.target.value)} 
+                    placeholder="50.00" 
+                    className="w-full border rounded-lg p-2.5 text-sm" 
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Duração (Minutos)</label>
+                  <input 
+                    type="number" 
+                    required 
+                    value={serviceDuration} 
+                    onChange={e => setServiceDuration(e.target.value)} 
+                    placeholder="30" 
+                    className="w-full border rounded-lg p-2.5 text-sm" 
+                  />
+                </div>
+              </div>
+
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Preço (R$)</label>
-                <input 
-                  type="number" 
-                  step="0.01" 
-                  required 
-                  value={servicePrice} 
-                  onChange={e => setServicePrice(e.target.value)} 
-                  placeholder="50.00" 
-                  className="w-full border rounded-lg p-2.5 text-sm" 
-                />
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Descrição do Procedimento</label>
+                <textarea 
+                  rows="3"
+                  value={serviceDesc} 
+                  onChange={e => setServiceDesc(e.target.value)} 
+                  placeholder="Descreva os detalhes do serviço ou produto..." 
+                  className="w-full border rounded-lg p-2.5 text-sm"
+                ></textarea>
               </div>
 
               <div className="flex justify-end gap-3 pt-2 border-t">
@@ -878,7 +1032,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL CADASTRAR CLIENTE (DIRETO NA ABA CLIENTES) */}
+      {/* MODAL CADASTRAR CLIENTE */}
       {showAddClientModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
