@@ -270,6 +270,7 @@ export default function App() {
       setServiceName('');
       setServicePrice('');
       setServiceDesc('');
+      setServiceDuration('30');
       setEditingServiceId(null);
       await loadAppData();
     } catch (err) {
@@ -406,20 +407,17 @@ export default function App() {
     }
   };
 
-  // Submissão do Agendamento Público com Correção de Erros
   const handlePublicBookingSubmit = async (e) => {
     e.preventDefault();
     try {
       const hInicio = publicProProfile?.hora_inicio || '08:00';
       const hFim = publicProProfile?.hora_fim || '18:00';
 
-      // 1. Validar Horário de Atendimento
       if (bookingTime < hInicio || bookingTime > hFim) {
         alert(`O salão atende somente entre ${hInicio.substring(0,5)} e ${hFim.substring(0,5)}. Por favor, escolha outro horário dentro do expediente.`);
         return;
       }
 
-      // 2. Validar se o horário já foi APROVADO
       const { data: busy } = await supabase.from('agendamentos')
         .select('*')
         .eq('profissional_id', publicProId)
@@ -432,8 +430,7 @@ export default function App() {
         return;
       }
 
-      // 3. Cadastrar ou localizar cliente
-      let { data: cli, error: cliFindErr } = await supabase.from('clientes')
+      let { data: cli } = await supabase.from('clientes')
         .select('*')
         .eq('telefone', clientPhone)
         .eq('profissional_id', publicProId)
@@ -450,7 +447,6 @@ export default function App() {
         cli = newCli;
       }
 
-      // 4. Inserir Agendamento com status Pendente
       const { error: apptInsertErr } = await supabase.from('agendamentos').insert([{ 
         cliente_id: cli.id, 
         profissional_id: publicProId, 
@@ -1045,7 +1041,7 @@ export default function App() {
         )}
       </main>
 
-      {/* MODAL CADASTRAR / EDITAR SERVIÇO */}
+      {/* MODAL CADASTRAR / EDITAR SERVIÇO COM DESCRIÇÃO E DURAÇÃO */}
       {showServiceModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
