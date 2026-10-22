@@ -24,7 +24,8 @@ import {
   MessageSquare,
   AlertTriangle,
   Edit,
-  RefreshCw
+  RefreshCw,
+  Trash2
 } from 'lucide-react';
 
 export default function App() {
@@ -37,7 +38,7 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // Rota Pública de Agendamento (?pro=UUID_DO_PROFISSIONAL)
+  // Rota Pública
   const queryParams = new URLSearchParams(window.location.search);
   const publicProId = queryParams.get('pro');
 
@@ -58,22 +59,18 @@ export default function App() {
   const [proModalError, setProModalError] = useState('');
   const [proModalSuccess, setProModalSuccess] = useState('');
 
-  // Modal Editar Profissional
-  const [showEditProModal, setShowEditProModal] = useState(false);
-  const [editProId, setEditProId] = useState('');
-  const [editProName, setEditProName] = useState('');
-  const [editProEmail, setEditProEmail] = useState('');
-  const [editProPhone, setEditProPhone] = useState('');
+  // Estados do Painel da Cabeleireira / Profissional
+  const [proTab, setProTab] = useState('agenda');
+  const [proClients, setProClients] = useState([]);
+  const [proServices, setProServices] = useState([]);
+  const [proAppointments, setProAppointments] = useState([]);
 
-  // Modal Atualizar Plano / Licença
-  const [showPlanModal, setShowPlanModal] = useState(false);
-  const [planProId, setPlanProId] = useState('');
-  const [planProName, setPlanProName] = useState('');
-  const [planValor, setPlanValor] = useState('50.00');
-  const [planFormaPagto, setPlanFormaPagto] = useState('Pix');
-  const [planDias, setPlanDias] = useState(30);
+  // Modais do Profissional
+  const [showAddServiceModal, setShowAddServiceModal] = useState(false);
+  const [serviceName, setServiceName] = useState('');
+  const [servicePrice, setServicePrice] = useState('');
 
-  // Estados da Agenda e Cliente Público
+  // Estados da Página Pública
   const [publicProProfile, setPublicProProfile] = useState(null);
   const [publicServices, setPublicServices] = useState([]);
   const [clientName, setClientName] = useState('');
@@ -144,6 +141,15 @@ export default function App() {
       const { data: lics } = await supabase.from('licencas').select('*, perfis(nome, email, telefone)').order('created_at', { ascending: false });
       setProfessionals(profs || []);
       setLicencas(lics || []);
+    } else if (userProfile) {
+      // Carregar dados da cabeleireira logada
+      const { data: cli } = await supabase.from('clientes').select('*').eq('profissional_id', userProfile.id);
+      const { data: srv } = await supabase.from('servicos').select('*').eq('profissional_id', userProfile.id);
+      const { data: appt } = await supabase.from('agendamentos').select('*, clientes(nome, telefone), servicos(nome, preco)').eq('profissional_id', userProfile.id);
+
+      setProClients(cli || []);
+      setProServices(srv || []);
+      setProAppointments(appt || []);
     }
   };
 
@@ -155,81 +161,6 @@ export default function App() {
     venc.setHours(0, 0, 0, 0);
     const diffTime = venc - hoje;
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  };
-
-  const enviarLembreteWhatsApp = (nomePro, telefonePro, dataVenc, diasRestantes) => {
-    const numLimpo = (telefonePro || '').replace(/\D/g, '');
-    let msg = `Olá, ${nomePro}! %0A%0ASeu acesso ao AgendaPro Hair vence em ${diasRestantes <= 0 ? 'HOJE' : diasRestantes + ' dias'} (${dataVenc}).%0A%0APara manter sua agenda ativa sem interrupções, realize a renovação da sua licença.%0A%0AQualquer dúvida estamos à disposição!`;
-
-    const url = numLimpo 
-      ? `https://wa.me/55${numLimpo}?text=${msg}`
-      : `https://wa.me/?text=${msg}`;
-
-    window.open(url, '_blank');
-  };
-
-  // Abrir Modal de Edição de Profissional
-  const handleOpenEditModal = (pro) => {
-    setEditProId(pro.id);
-    setEditProName(pro.nome);
-    setEditProEmail(pro.email);
-    setEditProPhone(pro.telefone || '');
-    setShowEditProModal(true);
-  };
-
-  // Salvar Edição do Profissional
-  const handleSaveProEdit = async (e) => {
-    e.preventDefault();
-    const { error } = await supabase
-      .from('perfis')
-      .update({
-        nome: editProName,
-        email: editProEmail,
-        telefone: editProPhone
-      })
-      .eq('id', editProId);
-
-    if (!error) {
-      setShowEditProModal(false);
-      loadAppData();
-    } else {
-      alert('Erro ao atualizar cadastro.');
-    }
-  };
-
-  // Abrir Modal de Renovação/Alteração de Valor de Plano
-  const handleOpenPlanModal = (pro) => {
-    const lic = licencas.find(l => l.profissional_id === pro.id);
-    setPlanProId(pro.id);
-    setPlanProName(pro.nome);
-    setPlanValor(lic ? lic.valor : '50.00');
-    setPlanFormaPagto(lic ? lic.forma_pagamento : 'Pix');
-    setPlanDias(30);
-    setShowPlanModal(true);
-  };
-
-  // Salvar Novo Plano/Valor e Data de Vencimento
-  const handleSavePlan = async (e) => {
-    e.preventDefault();
-    const dataVenc = new Date();
-    dataVenc.setDate(dataVenc.getDate() + parseInt(planDias));
-
-    const { error } = await supabase.from('licencas').insert([{
-      profissional_id: planProId,
-      plano: 'Mensal',
-      valor: parseFloat(planValor),
-      forma_pagamento: planFormaPagto,
-      data_pagamento: new Date().toISOString().split('T')[0],
-      data_vencimento: dataVenc.toISOString().split('T')[0],
-      status: 'active'
-    }]);
-
-    if (!error) {
-      setShowPlanModal(false);
-      loadAppData();
-    } else {
-      alert('Erro ao atualizar plano.');
-    }
   };
 
   // Login & Logout
@@ -251,7 +182,7 @@ export default function App() {
     setUserProfile(null);
   };
 
-  // Cadastrar Novo Profissional
+  // Cadastrar Novo Profissional (Master)
   const handleCreateProfessional = async (e) => {
     e.preventDefault();
     setProModalError('');
@@ -267,6 +198,7 @@ export default function App() {
       if (authError) throw authError;
 
       if (authData?.user) {
+        // Criar perfil
         await supabase.from('perfis').insert([{
           id: authData.user.id,
           nome: newProName,
@@ -276,6 +208,7 @@ export default function App() {
           status: 'active'
         }]);
 
+        // Registrar Licença
         const dataVenc = new Date();
         dataVenc.setDate(dataVenc.getDate() + parseInt(diasAcesso));
 
@@ -289,50 +222,35 @@ export default function App() {
           status: 'active'
         }]);
 
-        setProModalSuccess('Profissional e licença registradas!');
+        setProModalSuccess('Profissional cadastrado com sucesso!');
         setNewProName('');
         setNewProEmail('');
         setNewProPhone('');
         setNewProPassword('');
-        loadAppData();
-        setTimeout(() => setShowAddProModal(false), 1500);
+        
+        // Recarregar a lista do Master
+        await loadAppData();
+        setTimeout(() => setShowAddProModal(false), 1200);
       }
     } catch (err) {
-      setProModalError(err.message || 'Erro ao cadastrar profissional.');
+      setProModalError(err.message || 'Erro ao cadastrar.');
     }
   };
 
-  // Agendamento Público
-  const handlePublicBooking = async (e) => {
+  // Cadastrar Serviço (Cabeleireira)
+  const handleAddService = async (e) => {
     e.preventDefault();
-    try {
-      let { data: cli } = await supabase.from('clientes')
-        .select('*')
-        .eq('telefone', clientPhone)
-        .eq('profissional_id', publicProId)
-        .maybeSingle();
+    const { error } = await supabase.from('servicos').insert([{
+      nome: serviceName,
+      preco: parseFloat(servicePrice),
+      profissional_id: userProfile.id
+    }]);
 
-      if (!cli) {
-        const { data: newCli } = await supabase.from('clientes').insert([{
-          nome: clientName,
-          telefone: clientPhone,
-          profissional_id: publicProId
-        }]).select().single();
-        cli = newCli;
-      }
-
-      await supabase.from('agendamentos').insert([{
-        cliente_id: cli.id,
-        profissional_id: publicProId,
-        servico_id: selectedService,
-        data: bookingDate,
-        horario: bookingTime,
-        status: 'confirmado'
-      }]);
-
-      setPublicSuccess(true);
-    } catch (e) {
-      alert('Erro ao agendar. Tente novamente.');
+    if (!error) {
+      setServiceName('');
+      setServicePrice('');
+      setShowAddServiceModal(false);
+      loadAppData();
     }
   };
 
@@ -360,34 +278,35 @@ export default function App() {
           {publicSuccess ? (
             <div className="text-center py-8 space-y-3">
               <CheckCircle2 className="w-16 h-16 text-emerald-500 mx-auto" />
-              <h2 className="text-xl font-bold text-slate-900">Agendamento Solicitado!</h2>
-              <p className="text-sm text-slate-600">Seu agendamento foi registrado com sucesso.</p>
-              <button onClick={() => setPublicSuccess(false)} className="mt-4 bg-indigo-600 text-white px-6 py-2 rounded-lg text-sm font-semibold">
-                Fazer Novo Agendamento
-              </button>
+              <h2 className="text-xl font-bold text-slate-900">Agendamento Realizado!</h2>
+              <p className="text-sm text-slate-600">Seu agendamento foi gravado na agenda do salão.</p>
             </div>
           ) : (
-            <form onSubmit={handlePublicBooking} className="space-y-4">
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              let { data: cli } = await supabase.from('clientes').select('*').eq('telefone', clientPhone).eq('profissional_id', publicProId).maybeSingle();
+              if (!cli) {
+                const { data: newCli } = await supabase.from('clientes').insert([{ nome: clientName, telefone: clientPhone, profissional_id: publicProId }]).select().single();
+                cli = newCli;
+              }
+              await supabase.from('agendamentos').insert([{ cliente_id: cli.id, profissional_id: publicProId, servico_id: selectedService, data: bookingDate, horario: bookingTime, status: 'confirmado' }]);
+              setPublicSuccess(true);
+            }} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Seu Nome Completo</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Seu Nome</label>
                 <input type="text" required value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Ex: Ana Maria" className="w-full border rounded-lg p-3 text-sm" />
               </div>
-
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Seu WhatsApp / Telefone</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Seu WhatsApp</label>
                 <input type="tel" required value={clientPhone} onChange={e => setClientPhone(e.target.value)} placeholder="(47) 99999-9999" className="w-full border rounded-lg p-3 text-sm" />
               </div>
-
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Serviço Desejado</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Serviço</label>
                 <select required value={selectedService} onChange={e => setSelectedService(e.target.value)} className="w-full border rounded-lg p-3 text-sm">
-                  <option value="">Selecione o serviço...</option>
-                  {publicServices.map(s => (
-                    <option key={s.id} value={s.id}>{s.nome} - R$ {s.preco}</option>
-                  ))}
+                  <option value="">Selecione...</option>
+                  {publicServices.map(s => <option key={s.id} value={s.id}>{s.nome} - R$ {s.preco}</option>)}
                 </select>
               </div>
-
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Data</label>
@@ -398,8 +317,7 @@ export default function App() {
                   <input type="time" required value={bookingTime} onChange={e => setBookingTime(e.target.value)} className="w-full border rounded-lg p-3 text-sm" />
                 </div>
               </div>
-
-              <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl transition shadow-lg mt-2">
+              <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl transition shadow">
                 Confirmar Agendamento
               </button>
             </form>
@@ -409,7 +327,7 @@ export default function App() {
     );
   }
 
-  // TELA DE LOGIN SE NÃO AUTENTICADO
+  // TELA DE LOGIN
   if (!session || !userProfile) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
@@ -419,7 +337,7 @@ export default function App() {
               <Scissors className="w-6 h-6" />
             </div>
             <h1 className="text-2xl font-bold text-slate-900">AgendaPro Hair</h1>
-            <p className="text-sm text-slate-500 mt-1">Faça login para acessar a sua conta</p>
+            <p className="text-sm text-slate-500 mt-1">Faça login para acessar o sistema</p>
           </div>
 
           {loginError && <div className="p-3 bg-rose-50 text-rose-700 text-xs rounded-lg border border-rose-200">{loginError}</div>}
@@ -445,12 +363,9 @@ export default function App() {
   }
 
   // ==========================================
-  // PAINEL MASTER (ADMINISTRADOR)
+  // PAINEL MASTER
   // ==========================================
   if (userProfile.role === 'master') {
-    const totalRecebido = licencas.reduce((acc, curr) => acc + (parseFloat(curr.valor) || 0), 0);
-    const licencasProximosVencimentos = licencas.filter(l => getDiasRestantes(l.data_vencimento) <= 7);
-
     return (
       <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row font-sans">
         <aside className="w-full md:w-64 bg-slate-900 text-slate-100 flex flex-col border-r border-slate-800">
@@ -458,26 +373,13 @@ export default function App() {
             <div className="p-2 bg-indigo-600 rounded-lg text-white"><Shield className="w-6 h-6" /></div>
             <div>
               <h1 className="font-bold text-lg leading-tight">Painel Master</h1>
-              <p className="text-xs text-indigo-400">Gestão & Licenças</p>
+              <p className="text-xs text-indigo-400">Administração</p>
             </div>
           </div>
 
           <nav className="flex-1 p-4 space-y-1">
             <button onClick={() => setActiveTab('master_profs')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'master_profs' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-              <Users className="w-5 h-5" /> Profissionais & Licenças
-            </button>
-            <button onClick={() => setActiveTab('master_finance')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'master_finance' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-              <DollarSign className="w-5 h-5" /> Controle Financeiro
-            </button>
-            <button onClick={() => setActiveTab('master_vencimentos')} className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'master_vencimentos' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-              <div className="flex items-center gap-3">
-                <AlertTriangle className="w-5 h-5 text-amber-400" /> Próx. Vencimentos
-              </div>
-              {licencasProximosVencimentos.length > 0 && (
-                <span className="bg-amber-500 text-slate-900 font-bold px-2 py-0.5 rounded-full text-xs">
-                  {licencasProximosVencimentos.length}
-                </span>
-              )}
+              <Users className="w-5 h-5" /> Profissionais
             </button>
           </nav>
 
@@ -489,198 +391,46 @@ export default function App() {
         </aside>
 
         <main className="flex-1 p-8 overflow-y-auto">
-          {/* PROFISSIONAIS & EDIÇÃO DE PLANOS */}
-          {activeTab === 'master_profs' && (
+          <div className="flex justify-between items-center mb-6">
             <div>
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-slate-900">Profissionais & Licenças Cadastradas</h2>
-                  <p className="text-sm text-slate-500 mt-1">Gerencie os cadastros, valores dos planos e renovações.</p>
-                </div>
-                <button onClick={() => setShowAddProModal(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 shadow">
-                  <UserPlus className="w-4 h-4" /> Cadastrar Novo Profissional
-                </button>
-              </div>
+              <h2 className="text-2xl font-bold text-slate-900">Profissionais Cadastrados</h2>
+              <p className="text-sm text-slate-500 mt-1">Lista completa de acessos criados no sistema.</p>
+            </div>
+            <button onClick={() => setShowAddProModal(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 shadow">
+              <UserPlus className="w-4 h-4" /> Cadastrar Novo Profissional
+            </button>
+          </div>
 
-              <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4">
-                {professionals.map(p => {
-                  const licencaPro = licencas.find(l => l.profissional_id === p.id);
-                  const diasRestantes = licencaPro ? getDiasRestantes(licencaPro.data_vencimento) : 0;
-                  const linkPublico = `${window.location.origin}/?pro=${p.id}`;
+          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4">
+            {professionals.map(p => {
+              const licencaPro = licencas.find(l => l.profissional_id === p.id);
+              const linkPublico = `${window.location.origin}/?pro=${p.id}`;
 
-                  return (
-                    <div key={p.id} className="p-4 border rounded-xl bg-slate-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                      <div className="space-y-1 flex-1">
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-bold text-slate-900 text-base">{p.nome}</h4>
-                          <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${p.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
-                            {p.status === 'active' ? 'Ativo' : 'Bloqueado'}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-500">{p.email} • WhatsApp: {p.telefone || 'Não informado'}</p>
-                        
-                        {licencaPro && (
-                          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 pt-1">
-                            <span>Valor Plano: <strong className="text-emerald-700">R$ {parseFloat(licencaPro.valor).toFixed(2)}</strong></span>
-                            <span>• Vencimento: <strong>{licencaPro.data_vencimento}</strong></span>
-                            <span className={`font-bold px-2 py-0.5 rounded ${diasRestantes <= 5 ? 'bg-rose-100 text-rose-700' : 'bg-indigo-50 text-indigo-700'}`}>
-                              {diasRestantes <= 0 ? 'Vencido' : `${diasRestantes} dias restantes`}
-                            </span>
-                          </div>
-                        )}
-
-                        {p.role !== 'master' && (
-                          <div className="mt-2 flex items-center gap-2 text-xs bg-white p-2 rounded-lg border text-slate-600">
-                            <span className="font-semibold text-slate-700">Link Público:</span>
-                            <span className="truncate max-w-xs text-indigo-600">{linkPublico}</span>
-                            <button onClick={() => { navigator.clipboard.writeText(linkPublico); alert('Link copiado!'); }} className="p-1 hover:bg-slate-100 rounded text-slate-500" title="Copiar Link">
-                              <Copy className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      {p.role !== 'master' && (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <button 
-                            onClick={() => handleOpenEditModal(p)}
-                            className="bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5"
-                          >
-                            <Edit className="w-3.5 h-3.5" /> Editar Cadastro
-                          </button>
-
-                          <button 
-                            onClick={() => handleOpenPlanModal(p)}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow"
-                          >
-                            <RefreshCw className="w-3.5 h-3.5" /> Renovar / Alterar Valor
-                          </button>
-
-                          <button 
-                            onClick={() => enviarLembreteWhatsApp(p.nome, p.telefone, licencaPro?.data_vencimento, diasRestantes)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow"
-                          >
-                            <MessageSquare className="w-3.5 h-3.5" /> Whats
-                          </button>
-                        </div>
-                      )}
+              return (
+                <div key={p.id} className="p-4 border rounded-xl bg-slate-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-bold text-slate-900 text-base">{p.nome}</h4>
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                        {p.role}
+                      </span>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* FINANCEIRO */}
-          {activeTab === 'master_finance' && (
-            <div>
-              <div className="mb-6">
-                <h2 className="text-2xl font-bold text-slate-900">Controle Financeiro de Licenças</h2>
-                <p className="text-sm text-slate-500 mt-1">Histórico de pagamentos e liquidações das cabeleireiras.</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-                  <div className="p-3 bg-emerald-100 text-emerald-700 rounded-xl"><DollarSign className="w-8 h-8" /></div>
-                  <div>
-                    <p className="text-xs text-slate-500 uppercase font-semibold">Faturamento Total</p>
-                    <h3 className="text-2xl font-bold text-slate-900">R$ {totalRecebido.toFixed(2)}</h3>
+                    <p className="text-xs text-slate-500">{p.email} • WhatsApp: {p.telefone || 'Não informado'}</p>
+                    
+                    {p.role !== 'master' && (
+                      <div className="mt-2 flex items-center gap-2 text-xs bg-white p-2 rounded-lg border text-slate-600">
+                        <span className="font-semibold text-slate-700">Link de Agendamento:</span>
+                        <span className="truncate max-w-xs text-indigo-600">{linkPublico}</span>
+                        <button onClick={() => { navigator.clipboard.writeText(linkPublico); alert('Link copiado!'); }} className="p-1 hover:bg-slate-100 rounded text-slate-500">
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
-
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
-                  <div className="p-3 bg-indigo-100 text-indigo-700 rounded-xl"><Users className="w-8 h-8" /></div>
-                  <div>
-                    <p className="text-xs text-slate-500 uppercase font-semibold">Licenças Ativas</p>
-                    <h3 className="text-2xl font-bold text-slate-900">{licencas.filter(l => l.status === 'active').length}</h3>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-100 text-slate-600 uppercase text-xs">
-                    <tr>
-                      <th className="p-3">Profissional</th>
-                      <th className="p-3">Data Pagamento</th>
-                      <th className="p-3">Forma Pagto</th>
-                      <th className="p-3">Valor</th>
-                      <th className="p-3">Vencimento</th>
-                      <th className="p-3">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {licencas.map(l => (
-                      <tr key={l.id} className="hover:bg-slate-50">
-                        <td className="p-3 font-semibold text-slate-900">{l.perfis?.nome || 'Cabeleireira'}</td>
-                        <td className="p-3 text-slate-600">{l.data_pagamento}</td>
-                        <td className="p-3 text-slate-600"><span className="px-2 py-1 bg-slate-100 border rounded text-xs">{l.forma_pagamento}</span></td>
-                        <td className="p-3 font-bold text-emerald-700">R$ {parseFloat(l.valor).toFixed(2)}</td>
-                        <td className="p-3 text-slate-600 font-medium">{l.data_vencimento}</td>
-                        <td className="p-3">
-                          <button 
-                            onClick={() => enviarLembreteWhatsApp(l.perfis?.nome, l.perfis?.telefone, l.data_vencimento, getDiasRestantes(l.data_vencimento))}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-2.5 py-1.5 rounded font-semibold flex items-center gap-1"
-                          >
-                            <MessageSquare className="w-3.5 h-3.5" /> Whats
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* PRÓXIMOS VENCIMENTOS */}
-          {activeTab === 'master_vencimentos' && (
-            <div>
-              <div className="mb-6">
-                <h2 className="text-2xl font-bold text-slate-900">Próximos Vencimentos (Até 7 Dias)</h2>
-                <p className="text-sm text-slate-500 mt-1">Lista de cabeleireiras com renovação próxima.</p>
-              </div>
-
-              {licencasProximosVencimentos.length === 0 ? (
-                <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
-                  <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-2" />
-                  <p className="font-semibold text-slate-800">Nenhum vencimento para os próximos 7 dias!</p>
-                </div>
-              ) : (
-                <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-amber-50 text-amber-900 uppercase text-xs">
-                      <tr>
-                        <th className="p-3">Profissional</th>
-                        <th className="p-3">E-mail / Whats</th>
-                        <th className="p-3">Data Vencimento</th>
-                        <th className="p-3">Valor Mensalidade</th>
-                        <th className="p-3">Cobrança WhatsApp</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {licencasProximosVencimentos.map(l => (
-                        <tr key={l.id} className="hover:bg-slate-50">
-                          <td className="p-3 font-bold text-slate-900">{l.perfis?.nome}</td>
-                          <td className="p-3 text-slate-600 text-xs">{l.perfis?.email}<br/>{l.perfis?.telefone || 'Sem Whats'}</td>
-                          <td className="p-3 font-semibold text-slate-800">{l.data_vencimento}</td>
-                          <td className="p-3 font-bold text-emerald-700">R$ {parseFloat(l.valor).toFixed(2)}</td>
-                          <td className="p-3">
-                            <button 
-                              onClick={() => enviarLembreteWhatsApp(l.perfis?.nome, l.perfis?.telefone, l.data_vencimento, getDiasRestantes(l.data_vencimento))}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 shadow"
-                            >
-                              <MessageSquare className="w-4 h-4" /> Cobrar via Whats
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
+              );
+            })}
+          </div>
         </main>
 
         {/* MODAL CADASTRAR PROFISSIONAL */}
@@ -709,7 +459,7 @@ export default function App() {
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp (DDD + Número)</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp</label>
                     <input type="tel" required value={newProPhone} onChange={e => setNewProPhone(e.target.value)} placeholder="47999999999" className="w-full border rounded-lg p-2.5 text-sm" />
                   </div>
                   <div>
@@ -718,101 +468,9 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="border-t pt-3 mt-3">
-                  <h4 className="text-xs font-bold text-indigo-600 uppercase mb-2">Dados da Licença / Pagamento</h4>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Valor (R$)</label>
-                      <input type="number" step="0.01" required value={planoValor} onChange={e => setPlanoValor(e.target.value)} className="w-full border rounded-lg p-2 text-sm" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Forma Pagto</label>
-                      <select value={formaPagamento} onChange={e => setFormaPagamento(e.target.value)} className="w-full border rounded-lg p-2 text-sm">
-                        <option value="Pix">Pix</option>
-                        <option value="Cartão">Cartão</option>
-                        <option value="Dinheiro">Dinheiro</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Validade (Dias)</label>
-                      <input type="number" required value={diasAcesso} onChange={e => setDiasAcesso(e.target.value)} className="w-full border rounded-lg p-2 text-sm" />
-                    </div>
-                  </div>
-                </div>
-
                 <div className="flex justify-end gap-3 pt-3">
                   <button type="button" onClick={() => setShowAddProModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
-                  <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Cadastrar & Liberar</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* MODAL EDITAR CADASTRO DO PROFISSIONAL */}
-        {showEditProModal && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
-              <div className="flex justify-between items-center border-b pb-3">
-                <h3 className="font-bold text-slate-900 text-lg">Editar Cadastro</h3>
-                <button onClick={() => setShowEditProModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
-              </div>
-
-              <form onSubmit={handleSaveProEdit} className="space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Nome / Salão</label>
-                  <input type="text" required value={editProName} onChange={e => setEditProName(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">E-mail</label>
-                  <input type="email" required value={editProEmail} onChange={e => setEditProEmail(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp</label>
-                  <input type="tel" required value={editProPhone} onChange={e => setEditProPhone(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
-                </div>
-
-                <div className="flex justify-end gap-3 pt-3">
-                  <button type="button" onClick={() => setShowEditProModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
-                  <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Salvar Alterações</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* MODAL RENOVAR / EDITAR PLANO E VALOR */}
-        {showPlanModal && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
-              <div className="flex justify-between items-center border-b pb-3">
-                <h3 className="font-bold text-slate-900 text-lg">Renovar / Alterar Plano ({planProName})</h3>
-                <button onClick={() => setShowPlanModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
-              </div>
-
-              <form onSubmit={handleSavePlan} className="space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Valor do Plano (R$)</label>
-                  <input type="number" step="0.01" required value={planValor} onChange={e => setPlanValor(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Forma de Pagamento</label>
-                  <select value={planFormaPagto} onChange={e => setPlanFormaPagto(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm">
-                    <option value="Pix">Pix</option>
-                    <option value="Cartão">Cartão</option>
-                    <option value="Dinheiro">Dinheiro</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Renovar Acesso Por (Dias)</label>
-                  <input type="number" required value={planDias} onChange={e => setPlanDias(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
-                </div>
-
-                <div className="flex justify-end gap-3 pt-3">
-                  <button type="button" onClick={() => setShowPlanModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
-                  <button type="submit" className="px-4 py-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow">Registrar Pagamento</button>
+                  <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Cadastrar Profissional</button>
                 </div>
               </form>
             </div>
@@ -822,5 +480,120 @@ export default function App() {
     );
   }
 
-  return null;
+  // ==========================================
+  // PAINEL DA CABELEIREIRA / PROFISSIONAL
+  // ==========================================
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row font-sans">
+      <aside className="w-full md:w-64 bg-slate-900 text-slate-100 flex flex-col border-r border-slate-800">
+        <div className="p-6 border-b border-slate-800 flex items-center gap-3">
+          <div className="p-2 bg-indigo-600 rounded-lg text-white"><Scissors className="w-6 h-6" /></div>
+          <div>
+            <h1 className="font-bold text-lg leading-tight">{userProfile.nome}</h1>
+            <p className="text-xs text-slate-400">Agenda Profissional</p>
+          </div>
+        </div>
+
+        <nav className="flex-1 p-4 space-y-1">
+          <button onClick={() => setProTab('agenda')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'agenda' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+            <Calendar className="w-5 h-5" /> Agendamentos
+          </button>
+          <button onClick={() => setProTab('servicos')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'servicos' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+            <Scissors className="w-5 h-5" /> Meus Serviços
+          </button>
+          <button onClick={() => setProTab('clientes')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'clientes' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+            <Users className="w-5 h-5" /> Minhas Clientes
+          </button>
+        </nav>
+
+        <div className="p-4 border-t border-slate-800">
+          <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-rose-900/50 text-slate-300 hover:text-rose-200 py-2.5 rounded-lg text-sm transition">
+            <LogOut className="w-4 h-4" /> Sair
+          </button>
+        </div>
+      </aside>
+
+      <main className="flex-1 p-8 overflow-y-auto">
+        {proTab === 'agenda' && (
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900 mb-4">Meus Agendamentos</h2>
+            <div className="bg-white rounded-xl border p-6 shadow-sm space-y-3">
+              {proAppointments.length === 0 ? (
+                <p className="text-slate-500 text-sm">Nenhum agendamento gravado ainda.</p>
+              ) : (
+                proAppointments.map(a => (
+                  <div key={a.id} className="p-4 border rounded-lg flex justify-between items-center bg-slate-50">
+                    <div>
+                      <h4 className="font-bold text-slate-900">{a.clientes?.nome} ({a.clientes?.telefone})</h4>
+                      <p className="text-xs text-slate-500">Serviço: {a.servicos?.nome} • R$ {a.servicos?.preco}</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-bold text-indigo-600 block">{a.data} às {a.horario}</span>
+                      <span className="text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">{a.status}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {proTab === 'servicos' && (
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-slate-900">Meus Serviços</h2>
+              <button onClick={() => setShowAddServiceModal(true)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2">
+                <Plus className="w-4 h-4" /> Adicionar Serviço
+              </button>
+            </div>
+            <div className="bg-white rounded-xl border p-6 shadow-sm space-y-3">
+              {proServices.map(s => (
+                <div key={s.id} className="p-3 border rounded-lg flex justify-between items-center">
+                  <span className="font-bold text-slate-900">{s.nome}</span>
+                  <span className="font-bold text-emerald-700">R$ {parseFloat(s.preco).toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {proTab === 'clientes' && (
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900 mb-4">Minhas Clientes</h2>
+            <div className="bg-white rounded-xl border p-6 shadow-sm space-y-3">
+              {proClients.map(c => (
+                <div key={c.id} className="p-3 border rounded-lg flex justify-between items-center">
+                  <span className="font-bold text-slate-900">{c.nome}</span>
+                  <span className="text-slate-600 text-sm">{c.telefone}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* MODAL ADICIONAR SERVIÇO */}
+      {showAddServiceModal && (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4">
+            <h3 className="font-bold text-slate-900 text-lg">Novo Serviço</h3>
+            <form onSubmit={handleAddService} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nome do Serviço</label>
+                <input type="text" required value={serviceName} onChange={e => setServiceName(e.target.value)} placeholder="Ex: Corte Feminino" className="w-full border rounded-lg p-2.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Preço (R$)</label>
+                <input type="number" step="0.01" required value={servicePrice} onChange={e => setServicePrice(e.target.value)} placeholder="50.00" className="w-full border rounded-lg p-2.5 text-sm" />
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setShowAddServiceModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
+                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-lg">Salvar Serviço</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
