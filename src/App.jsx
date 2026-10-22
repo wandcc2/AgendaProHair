@@ -28,7 +28,8 @@ import {
   ChevronDown,
   ChevronUp,
   Check,
-  X
+  X,
+  Settings
 } from 'lucide-react';
 
 const SUPABASE_URL = 'https://ujdaesnmqhkzefqdwygk.supabase.co';
@@ -74,6 +75,11 @@ export default function App() {
   const [proServices, setProServices] = useState([]);
   const [proAppointments, setProAppointments] = useState([]);
   const [expandedServiceId, setExpandedServiceId] = useState(null);
+
+  // Configuração de Horário do Profissional
+  const [horaInicio, setHoraInicio] = useState('08:00');
+  const [horaFim, setHoraFim] = useState('18:00');
+  const [configSuccess, setConfigSuccess] = useState('');
 
   // Modal Criar/Editar Serviço
   const [showServiceModal, setShowServiceModal] = useState(false);
@@ -152,6 +158,8 @@ export default function App() {
       const { data, error } = await supabase.from('perfis').select('*').eq('id', userId).single();
       if (error) throw error;
       setUserProfile(data);
+      if (data?.hora_inicio) setHoraInicio(data.hora_inicio);
+      if (data?.hora_fim) setHoraFim(data.hora_fim);
     } catch (error) {
       console.error('Erro ao buscar perfil:', error);
     } finally {
@@ -179,6 +187,23 @@ export default function App() {
       setProClients(cli || []);
       setProServices(srv || []);
       setProAppointments(appt || []);
+    }
+  };
+
+  const salvarHorarioAtendimento = async (e) => {
+    e.preventDefault();
+    setConfigSuccess('');
+
+    const { error } = await supabase.from('perfis').update({
+      hora_inicio: horaInicio,
+      hora_fim: horaFim
+    }).eq('id', userProfile.id);
+
+    if (!error) {
+      setConfigSuccess('Horário de atendimento atualizado com sucesso!');
+      setTimeout(() => setConfigSuccess(''), 3000);
+    } else {
+      alert('Erro ao salvar horário.');
     }
   };
 
@@ -259,7 +284,6 @@ export default function App() {
     }
   };
 
-  // Alterar Status do Agendamento (Aprovar / Recusar)
   const handleUpdateApptStatus = async (apptId, newStatus) => {
     const { error } = await supabase.from('agendamentos').update({ status: newStatus }).eq('id', apptId);
     if (!error) {
@@ -382,11 +406,20 @@ export default function App() {
     }
   };
 
-  // Submissão do Agendamento Público pelo Cliente
+  // Submissão do Agendamento Público com Validação do Horário de Atendimento
   const handlePublicBookingSubmit = async (e) => {
     e.preventDefault();
     try {
-      // 1. Validar se o horário já está ocupado por agendamento APROVADO/CONFIRMADO
+      const hInicio = publicProProfile?.hora_inicio || '08:00';
+      const hFim = publicProProfile?.hora_fim || '18:00';
+
+      // Validação do Horário de Atendimento
+      if (bookingTime < hInicio || bookingTime > hFim) {
+        alert(`O salão atende somente entre ${hInicio.substring(0,5)} e ${hFim.substring(0,5)}. Por favor, escolha outro horário dentro do expediente.`);
+        return;
+      }
+
+      // Validar se o horário já está ocupado por agendamento APROVADO
       const { data: busy } = await supabase.from('agendamentos')
         .select('*')
         .eq('profissional_id', publicProId)
@@ -395,7 +428,7 @@ export default function App() {
         .eq('status', 'confirmado');
 
       if (busy && busy.length > 0) {
-        alert('Este horário já foi aprovado e agendado para outra cliente. Por favor, escolha outro horário.');
+        alert('Este horário já foi aprovado e reservado para outra cliente. Por favor, escolha outro horário.');
         return;
       }
 
@@ -414,7 +447,6 @@ export default function App() {
         cli = newCli;
       }
 
-      // 2. Gravar agendamento com status PENDENTE de aprovação
       await supabase.from('agendamentos').insert([{ 
         cliente_id: cli.id, 
         profissional_id: publicProId, 
@@ -481,7 +513,9 @@ export default function App() {
               <Scissors className="w-7 h-7" />
             </div>
             <h1 className="text-2xl font-bold text-slate-900">{publicProProfile?.nome || 'Agenda Online'}</h1>
-            <p className="text-xs text-slate-500 mt-1">Solicite o seu agendamento online</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Horário de Atendimento: <strong className="text-slate-700">{publicProProfile?.hora_inicio?.substring(0,5) || '08:00'} às {publicProProfile?.hora_fim?.substring(0,5) || '18:00'}</strong>
+            </p>
           </div>
 
           {publicSuccess ? (
@@ -719,6 +753,9 @@ export default function App() {
           <button onClick={() => setProTab('clientes')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'clientes' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Users className="w-5 h-5" /> Minhas Clientes
           </button>
+          <button onClick={() => setProTab('config')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'config' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+            <Settings className="w-5 h-5" /> Horário de Atendimento
+          </button>
         </nav>
 
         <div className="p-4 border-t border-slate-800">
@@ -806,7 +843,6 @@ export default function App() {
                         <span className="font-bold text-slate-900 block text-sm">{a.data} às {a.horario}</span>
                       </div>
 
-                      {/* Botões de Aprovação se estiver Pendente */}
                       {a.status === 'pendente' ? (
                         <div className="flex items-center gap-2">
                           <button 
@@ -862,7 +898,6 @@ export default function App() {
                   const isExpanded = expandedServiceId === s.id;
                   return (
                     <div key={s.id} className="border rounded-xl bg-slate-50 overflow-hidden transition">
-                      {/* Linha principal clicável para expandir */}
                       <div 
                         onClick={() => setExpandedServiceId(isExpanded ? null : s.id)}
                         className="p-4 flex justify-between items-center cursor-pointer hover:bg-slate-100/80 transition"
@@ -893,7 +928,6 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Bloco Expandido com Descrição e Tempo de Procedimento */}
                       {isExpanded && (
                         <div className="p-4 border-t bg-white space-y-2 text-sm text-slate-600">
                           <div className="flex items-center gap-2 font-semibold text-slate-700">
@@ -952,6 +986,53 @@ export default function App() {
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB HORÁRIO DE ATENDIMENTO */}
+        {proTab === 'config' && (
+          <div>
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold text-slate-900">Horário de Atendimento</h2>
+              <p className="text-sm text-slate-500 mt-1">Defina o expediente para impedir agendamentos fora de horário.</p>
+            </div>
+
+            <div className="bg-white rounded-xl border p-6 shadow-sm max-w-lg space-y-4">
+              {configSuccess && (
+                <div className="p-3 bg-emerald-50 text-emerald-700 text-xs rounded-lg border border-emerald-200">
+                  {configSuccess}
+                </div>
+              )}
+
+              <form onSubmit={salvarHorarioAtendimento} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Horário de Abertura</label>
+                    <input 
+                      type="time" 
+                      required 
+                      value={horaInicio} 
+                      onChange={e => setHoraInicio(e.target.value)} 
+                      className="w-full border rounded-lg p-3 text-sm" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Horário de Fechamento</label>
+                    <input 
+                      type="time" 
+                      required 
+                      value={horaFim} 
+                      onChange={e => setHoraFim(e.target.value)} 
+                      className="w-full border rounded-lg p-3 text-sm" 
+                    />
+                  </div>
+                </div>
+
+                <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg shadow transition">
+                  Salvar Horário de Expediente
+                </button>
+              </form>
             </div>
           </div>
         )}
