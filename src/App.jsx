@@ -165,17 +165,22 @@ export default function App() {
     }
   };
 
-  // Salvar Novo Serviço / Produto (Profissional)
+  // Cadastrar Novo Serviço / Produto (Profissional)
   const handleAddService = async (e) => {
     e.preventDefault();
     setServiceError('');
 
+    if (!userProfile?.id) {
+      setServiceError('Sessão inválida. Por favor, recarregue a página e tente novamente.');
+      return;
+    }
+
     try {
-      const { error } = await supabase.from('servicos').insert([{
+      const { data, error } = await supabase.from('servicos').insert([{
         nome: serviceName,
         preco: parseFloat(servicePrice),
         profissional_id: userProfile.id
-      }]);
+      }]).select();
 
       if (error) throw error;
 
@@ -184,13 +189,12 @@ export default function App() {
       setShowAddServiceModal(false);
       await loadAppData();
     } catch (err) {
-      setServiceError(err.message || 'Erro ao salvar o serviço/produto.');
+      setServiceError(err.message || 'Erro ao cadastrar serviço.');
     }
   };
 
-  // Excluir Serviço
   const handleDeleteService = async (serviceId) => {
-    if (window.confirm('Deseja realmente remover este serviço?')) {
+    if (window.confirm('Deseja realmente remover este serviço/produto?')) {
       await supabase.from('servicos').delete().eq('id', serviceId);
       loadAppData();
     }
@@ -368,10 +372,10 @@ export default function App() {
                 <input type="tel" required value={clientPhone} onChange={e => setClientPhone(e.target.value)} placeholder="(47) 99999-9999" className="w-full border rounded-lg p-3 text-sm" />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Serviço</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Serviço / Produto</label>
                 <select required value={selectedService} onChange={e => setSelectedService(e.target.value)} className="w-full border rounded-lg p-3 text-sm">
-                  <option value="">Selecione...</option>
-                  {publicServices.map(s => <option key={s.id} value={s.id}>{s.nome} - R$ {s.preco}</option>)}
+                  <option value="">Selecione o serviço...</option>
+                  {publicServices.map(s => <option key={s.id} value={s.id}>{s.nome} - R$ {parseFloat(s.preco).toFixed(2)}</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
