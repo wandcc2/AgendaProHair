@@ -22,7 +22,9 @@ import {
   Edit,
   RefreshCw,
   CalendarPlus,
-  Trash2
+  Trash2,
+  ExternalLink,
+  Share2
 } from 'lucide-react';
 
 const SUPABASE_URL = 'https://ujdaesnmqhkzefqdwygk.supabase.co';
@@ -165,22 +167,36 @@ export default function App() {
     }
   };
 
+  // Enviar Link de Agendamento via WhatsApp para Cliente
+  const enviarLinkAgendamentoWhats = (nomeCliente, telefoneCliente) => {
+    const numLimpo = (telefoneCliente || '').replace(/\D/g, '');
+    if (!numLimpo) {
+      alert('Esta cliente não possui telefone/WhatsApp cadastrado.');
+      return;
+    }
+
+    const linkPublico = `${window.location.origin}/?pro=${userProfile.id}`;
+    const msg = `Olá, ${nomeCliente}! %0A%0A Agora você pode agendar seus horários no salão *${userProfile.nome}* diretamente pelo nosso site de agendamento online! %0A%0A Acessa o link abaixo para escolher o melhor dia e horário:%0A${linkPublico}%0A%0ATe esperamos! 😊`;
+
+    window.open(`https://wa.me/55${numLimpo}?text=${msg}`, '_blank');
+  };
+
   // Cadastrar Novo Serviço / Produto (Profissional)
   const handleAddService = async (e) => {
     e.preventDefault();
     setServiceError('');
 
     if (!userProfile?.id) {
-      setServiceError('Sessão inválida. Por favor, recarregue a página e tente novamente.');
+      setServiceError('Sessão inválida. Por favor, recarregue a página.');
       return;
     }
 
     try {
-      const { data, error } = await supabase.from('servicos').insert([{
+      const { error } = await supabase.from('servicos').insert([{
         nome: serviceName,
         preco: parseFloat(servicePrice),
         profissional_id: userProfile.id
-      }]).select();
+      }]);
 
       if (error) throw error;
 
@@ -548,6 +564,8 @@ export default function App() {
   }
 
   // PAINEL DA CABELEIREIRA / PROFISSIONAL
+  const proLinkPublico = `${window.location.origin}/?pro=${userProfile?.id}`;
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row font-sans">
       <aside className="w-full md:w-64 bg-slate-900 text-slate-100 flex flex-col border-r border-slate-800">
@@ -579,6 +597,38 @@ export default function App() {
       </aside>
 
       <main className="flex-1 p-8 overflow-y-auto">
+        {/* CARD EM DESTAQUE COM O LINK PÚBLICO */}
+        <div className="bg-gradient-to-r from-indigo-900 to-slate-900 text-white p-6 rounded-2xl shadow-lg mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border border-indigo-700/50">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Share2 className="w-5 h-5 text-indigo-400" />
+              <h3 className="font-bold text-lg">Seu Link de Agendamento Online</h3>
+            </div>
+            <p className="text-xs text-indigo-200">Envie este link para suas clientes realizarem o agendamento diretamente pela internet.</p>
+            <div className="mt-3 bg-slate-800/80 px-3 py-2 rounded-lg border border-slate-700 text-xs text-indigo-300 font-mono truncate max-w-md">
+              {proLinkPublico}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => { navigator.clipboard.writeText(proLinkPublico); alert('Link público copiado com sucesso!'); }} 
+              className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-4 py-2.5 rounded-lg font-semibold flex items-center gap-2 shadow transition"
+            >
+              <Copy className="w-4 h-4" /> Copiar Link
+            </button>
+            <a 
+              href={proLinkPublico} 
+              target="_blank" 
+              rel="noreferrer"
+              className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-4 py-2.5 rounded-lg font-semibold flex items-center gap-2 border border-slate-700 transition"
+            >
+              <ExternalLink className="w-4 h-4" /> Visualizar
+            </a>
+          </div>
+        </div>
+
+        {/* TAB AGENDAMENTOS */}
         {proTab === 'agenda' && (
           <div>
             <div className="flex justify-between items-center mb-6">
@@ -630,6 +680,7 @@ export default function App() {
           </div>
         )}
 
+        {/* TAB SERVIÇOS & PRODUTOS */}
         {proTab === 'servicos' && (
           <div>
             <div className="flex justify-between items-center mb-6">
@@ -669,16 +720,34 @@ export default function App() {
           </div>
         )}
 
+        {/* TAB MINHAS CLIENTES */}
         {proTab === 'clientes' && (
           <div>
-            <h2 className="text-2xl font-bold text-slate-900 mb-4">Minhas Clientes</h2>
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold text-slate-900">Minhas Clientes</h2>
+              <p className="text-sm text-slate-500 mt-1">Lista de clientes e envio do link de agendamento por WhatsApp.</p>
+            </div>
+
             <div className="bg-white rounded-xl border p-6 shadow-sm space-y-3">
-              {proClients.map(c => (
-                <div key={c.id} className="p-3 border rounded-lg flex justify-between items-center">
-                  <span className="font-bold text-slate-900">{c.nome}</span>
-                  <span className="text-slate-600 text-sm">{c.telefone}</span>
-                </div>
-              ))}
+              {proClients.length === 0 ? (
+                <p className="text-slate-500 text-sm">Nenhuma cliente cadastrada ainda.</p>
+              ) : (
+                proClients.map(c => (
+                  <div key={c.id} className="p-4 border rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center bg-slate-50 gap-4">
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-base">{c.nome}</h4>
+                      <p className="text-xs text-slate-500">WhatsApp: {c.telefone || 'Não informado'}</p>
+                    </div>
+
+                    <button 
+                      onClick={() => enviarLinkAgendamentoWhats(c.nome, c.telefone)}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3.5 py-2 rounded-lg font-semibold flex items-center gap-2 shadow transition"
+                    >
+                      <MessageSquare className="w-4 h-4" /> Enviar Link via Whats
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
