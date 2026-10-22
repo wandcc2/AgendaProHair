@@ -22,10 +22,9 @@ import {
   Edit,
   RefreshCw,
   CalendarPlus,
-  Check
+  Trash2
 } from 'lucide-react';
 
-// Instância secundária para criar usuários sem deslogar o Master
 const SUPABASE_URL = 'https://ujdaesnmqhkzefqdwygk.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_PWOqJOgpsoJQT3FNDxB-Tw_5jURYgth';
 const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -37,7 +36,7 @@ export default function App() {
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Estados de Login
+  // Login
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
@@ -46,7 +45,7 @@ export default function App() {
   const queryParams = new URLSearchParams(window.location.search);
   const publicProId = queryParams.get('pro');
 
-  // Estados do Master
+  // Master
   const [activeTab, setActiveTab] = useState('master_profs');
   const [professionals, setProfessionals] = useState([]);
   const [licencas, setLicencas] = useState([]);
@@ -63,20 +62,21 @@ export default function App() {
   const [proModalError, setProModalError] = useState('');
   const [proModalSuccess, setProModalSuccess] = useState('');
 
-  // Estados do Profissional (Cabeleireira)
+  // Profissional / Cabeleireira
   const [proTab, setProTab] = useState('agenda');
   const [proClients, setProClients] = useState([]);
   const [proServices, setProServices] = useState([]);
   const [proAppointments, setProAppointments] = useState([]);
 
-  // Modais da Profissional
+  // Modal Serviço / Produto
   const [showAddServiceModal, setShowAddServiceModal] = useState(false);
   const [serviceName, setServiceName] = useState('');
   const [servicePrice, setServicePrice] = useState('');
+  const [serviceError, setServiceError] = useState('');
 
-  // Modal Agendamento Manual (Profissional)
+  // Modal Agendamento Manual
   const [showAddApptModal, setShowAddApptModal] = useState(false);
-  const [apptClientType, setApptClientType] = useState('existing'); // existing ou new
+  const [apptClientType, setApptClientType] = useState('existing');
   const [selectedClientId, setSelectedClientId] = useState('');
   const [manualClientName, setManualClientName] = useState('');
   const [manualClientPhone, setManualClientPhone] = useState('');
@@ -84,7 +84,7 @@ export default function App() {
   const [manualDate, setManualDate] = useState('');
   const [manualTime, setManualTime] = useState('');
 
-  // Estados da Página Pública
+  // Página Pública
   const [publicProProfile, setPublicProProfile] = useState(null);
   const [publicServices, setPublicServices] = useState([]);
   const [clientName, setClientName] = useState('');
@@ -94,7 +94,6 @@ export default function App() {
   const [bookingTime, setBookingTime] = useState('');
   const [publicSuccess, setPublicSuccess] = useState(false);
 
-  // Verificar Sessão Inicial
   useEffect(() => {
     if (publicProId) {
       loadPublicPageData(publicProId);
@@ -157,12 +156,43 @@ export default function App() {
       setLicencas(lics || []);
     } else if (userProfile) {
       const { data: cli } = await supabase.from('clientes').select('*').eq('profissional_id', userProfile.id).order('nome', { ascending: true });
-      const { data: srv } = await supabase.from('servicos').select('*').eq('profissional_id', userProfile.id);
+      const { data: srv } = await supabase.from('servicos').select('*').eq('profissional_id', userProfile.id).order('nome', { ascending: true });
       const { data: appt } = await supabase.from('agendamentos').select('*, clientes(nome, telefone), servicos(nome, preco)').eq('profissional_id', userProfile.id).order('data', { ascending: true });
 
       setProClients(cli || []);
       setProServices(srv || []);
       setProAppointments(appt || []);
+    }
+  };
+
+  // Salvar Novo Serviço / Produto (Profissional)
+  const handleAddService = async (e) => {
+    e.preventDefault();
+    setServiceError('');
+
+    try {
+      const { error } = await supabase.from('servicos').insert([{
+        nome: serviceName,
+        preco: parseFloat(servicePrice),
+        profissional_id: userProfile.id
+      }]);
+
+      if (error) throw error;
+
+      setServiceName('');
+      setServicePrice('');
+      setShowAddServiceModal(false);
+      await loadAppData();
+    } catch (err) {
+      setServiceError(err.message || 'Erro ao salvar o serviço/produto.');
+    }
+  };
+
+  // Excluir Serviço
+  const handleDeleteService = async (serviceId) => {
+    if (window.confirm('Deseja realmente remover este serviço?')) {
+      await supabase.from('servicos').delete().eq('id', serviceId);
+      loadAppData();
     }
   };
 
@@ -218,13 +248,12 @@ export default function App() {
     }
   };
 
-  // Cadastrar Agendamento Manual (Profissional)
+  // Cadastrar Agendamento Manual
   const handleAddManualAppointment = async (e) => {
     e.preventDefault();
     try {
       let finalClientId = selectedClientId;
 
-      // Se for cliente novo, cria primeiro na tabela clientes
       if (apptClientType === 'new') {
         const { data: newCli, error: cliErr } = await supabase.from('clientes').insert([{
           nome: manualClientName,
@@ -236,7 +265,6 @@ export default function App() {
         finalClientId = newCli.id;
       }
 
-      // Salvar agendamento
       const { error: apptErr } = await supabase.from('agendamentos').insert([{
         cliente_id: finalClientId,
         profissional_id: userProfile.id,
@@ -261,7 +289,6 @@ export default function App() {
     }
   };
 
-  // Enviar Lembrete / Pedido de Confirmação via WhatsApp
   const enviarConfirmacaoWhatsApp = (nomeCliente, telefoneCliente, data, horario, servicoNome) => {
     const numLimpo = (telefoneCliente || '').replace(/\D/g, '');
     if (!numLimpo) {
@@ -269,10 +296,8 @@ export default function App() {
       return;
     }
 
-    // Formatar data para exibição (DD/MM/AAAA)
     const partesData = data.split('-');
     const dataFormatada = `${partesData[2]}/${partesData[1]}/${partesData[0]}`;
-
     const msg = `Olá, ${nomeCliente}! %0A%0APassando para lembrar do seu agendamento no salão *${userProfile?.nome}*:%0A%0A🗓️ *Data:* ${dataFormatada}%0A⏰ *Horário:* ${horario}%0A💇‍♀️ *Serviço:* ${servicoNome}%0A%0APor favor, responda esta mensagem confirmando a sua presença! 😊`;
 
     window.open(`https://wa.me/55${numLimpo}?text=${msg}`, '_blank');
@@ -535,7 +560,7 @@ export default function App() {
             <Calendar className="w-5 h-5" /> Agendamentos
           </button>
           <button onClick={() => setProTab('servicos')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'servicos' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <Scissors className="w-5 h-5" /> Meus Serviços
+            <Scissors className="w-5 h-5" /> Serviços & Produtos
           </button>
           <button onClick={() => setProTab('clientes')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'clientes' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Users className="w-5 h-5" /> Minhas Clientes
@@ -590,7 +615,6 @@ export default function App() {
                       <button 
                         onClick={() => enviarConfirmacaoWhatsApp(a.clientes?.nome, a.clientes?.telefone, a.data, a.horario, a.servicos?.nome)}
                         className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow"
-                        title="Enviar Lembrete de Véspera"
                       >
                         <MessageSquare className="w-4 h-4" /> Solicitar Confirmação
                       </button>
@@ -604,19 +628,39 @@ export default function App() {
 
         {proTab === 'servicos' && (
           <div>
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-bold text-slate-900">Meus Serviços</h2>
-              <button onClick={() => setShowAddServiceModal(true)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2">
-                <Plus className="w-4 h-4" /> Adicionar Serviço
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900">Serviços & Produtos</h2>
+                <p className="text-sm text-slate-500 mt-1">Cadastre os preços e serviços oferecidos no seu salão.</p>
+              </div>
+              <button 
+                onClick={() => setShowAddServiceModal(true)} 
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 shadow"
+              >
+                <Plus className="w-4 h-4" /> Cadastrar Novo Serviço/Produto
               </button>
             </div>
+
             <div className="bg-white rounded-xl border p-6 shadow-sm space-y-3">
-              {proServices.map(s => (
-                <div key={s.id} className="p-3 border rounded-lg flex justify-between items-center">
-                  <span className="font-bold text-slate-900">{s.nome}</span>
-                  <span className="font-bold text-emerald-700">R$ {parseFloat(s.preco).toFixed(2)}</span>
-                </div>
-              ))}
+              {proServices.length === 0 ? (
+                <p className="text-slate-500 text-sm">Nenhum serviço ou produto cadastrado ainda.</p>
+              ) : (
+                proServices.map(s => (
+                  <div key={s.id} className="p-4 border rounded-xl flex justify-between items-center bg-slate-50">
+                    <span className="font-bold text-slate-900 text-base">{s.nome}</span>
+                    <div className="flex items-center gap-4">
+                      <span className="font-bold text-emerald-700 text-base">R$ {parseFloat(s.preco).toFixed(2)}</span>
+                      <button 
+                        onClick={() => handleDeleteService(s.id)}
+                        className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                        title="Excluir Serviço"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
@@ -636,12 +680,58 @@ export default function App() {
         )}
       </main>
 
-      {/* MODAL NOVO AGENDAMENTO MANUAL */}
+      {/* MODAL ADICIONAR SERVIÇO / PRODUTO */}
+      {showAddServiceModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-bold text-slate-900 text-lg">Novo Serviço / Produto</h3>
+              <button onClick={() => setShowAddServiceModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
+            </div>
+
+            {serviceError && <div className="p-3 bg-rose-50 text-rose-700 text-xs rounded-lg border border-rose-200">{serviceError}</div>}
+
+            <form onSubmit={handleAddService} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nome do Serviço ou Produto</label>
+                <input 
+                  type="text" 
+                  required 
+                  value={serviceName} 
+                  onChange={e => setServiceName(e.target.value)} 
+                  placeholder="Ex: Corte Feminino, Escova, Botox" 
+                  className="w-full border rounded-lg p-2.5 text-sm" 
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Preço (R$)</label>
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  required 
+                  value={servicePrice} 
+                  onChange={e => setServicePrice(e.target.value)} 
+                  placeholder="50.00" 
+                  className="w-full border rounded-lg p-2.5 text-sm" 
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2 border-t">
+                <button type="button" onClick={() => setShowAddServiceModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Salvar Serviço</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL AGENDAMENTO MANUAL */}
       {showAddApptModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4">
             <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="font-bold text-slate-900 text-lg">Agendamento Manual / Avulso</h3>
+              <h3 className="font-bold text-slate-900 text-lg">Agendamento Manual</h3>
               <button onClick={() => setShowAddApptModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
             </div>
 
@@ -650,20 +740,10 @@ export default function App() {
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo de Cliente</label>
                 <div className="flex gap-4">
                   <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-                    <input 
-                      type="radio" 
-                      name="clientType" 
-                      checked={apptClientType === 'existing'} 
-                      onChange={() => setApptClientType('existing')} 
-                    /> Cliente Já Cadastrada
+                    <input type="radio" name="clientType" checked={apptClientType === 'existing'} onChange={() => setApptClientType('existing')} /> Cliente Cadastrada
                   </label>
                   <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-                    <input 
-                      type="radio" 
-                      name="clientType" 
-                      checked={apptClientType === 'new'} 
-                      onChange={() => setApptClientType('new')} 
-                    /> Nova Cliente
+                    <input type="radio" name="clientType" checked={apptClientType === 'new'} onChange={() => setApptClientType('new')} /> Nova Cliente
                   </label>
                 </div>
               </div>
@@ -671,116 +751,46 @@ export default function App() {
               {apptClientType === 'existing' ? (
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Selecione a Cliente</label>
-                  <select 
-                    required 
-                    value={selectedClientId} 
-                    onChange={e => setSelectedClientId(e.target.value)} 
-                    className="w-full border rounded-lg p-2.5 text-sm"
-                  >
-                    <option value="">Selecione uma cliente...</option>
-                    {proClients.map(c => (
-                      <option key={c.id} value={c.id}>{c.nome} ({c.telefone})</option>
-                    ))}
+                  <select required value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm">
+                    <option value="">Selecione...</option>
+                    {proClients.map(c => <option key={c.id} value={c.id}>{c.nome} ({c.telefone})</option>)}
                   </select>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Nome da Cliente</label>
-                    <input 
-                      type="text" 
-                      required 
-                      value={manualClientName} 
-                      onChange={e => setManualClientName(e.target.value)} 
-                      placeholder="Ex: Maria Clara" 
-                      className="w-full border rounded-lg p-2.5 text-sm" 
-                    />
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Nome</label>
+                    <input type="text" required value={manualClientName} onChange={e => setManualClientName(e.target.value)} placeholder="Ex: Maria" className="w-full border rounded-lg p-2.5 text-sm" />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp</label>
-                    <input 
-                      type="tel" 
-                      required 
-                      value={manualClientPhone} 
-                      onChange={e => setManualClientPhone(e.target.value)} 
-                      placeholder="(47) 99999-9999" 
-                      className="w-full border rounded-lg p-2.5 text-sm" 
-                    />
+                    <input type="tel" required value={manualClientPhone} onChange={e => setManualClientPhone(e.target.value)} placeholder="(47) 99999-9999" className="w-full border rounded-lg p-2.5 text-sm" />
                   </div>
                 </div>
               )}
 
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Serviço</label>
-                <select 
-                  required 
-                  value={manualServiceId} 
-                  onChange={e => setManualServiceId(e.target.value)} 
-                  className="w-full border rounded-lg p-2.5 text-sm"
-                >
+                <select required value={manualServiceId} onChange={e => setManualServiceId(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm">
                   <option value="">Selecione o serviço...</option>
-                  {proServices.map(s => (
-                    <option key={s.id} value={s.id}>{s.nome} — R$ {parseFloat(s.preco).toFixed(2)}</option>
-                  ))}
+                  {proServices.map(s => <option key={s.id} value={s.id}>{s.nome} — R$ {parseFloat(s.preco).toFixed(2)}</option>)}
                 </select>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Data</label>
-                  <input 
-                    type="date" 
-                    required 
-                    value={manualDate} 
-                    onChange={e => setManualDate(e.target.value)} 
-                    className="w-full border rounded-lg p-2.5 text-sm" 
-                  />
+                  <input type="date" required value={manualDate} onChange={e => setManualDate(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Horário</label>
-                  <input 
-                    type="time" 
-                    required 
-                    value={manualTime} 
-                    onChange={e => setManualTime(e.target.value)} 
-                    className="w-full border rounded-lg p-2.5 text-sm" 
-                  />
+                  <input type="time" required value={manualTime} onChange={e => setManualTime(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
                 </div>
               </div>
 
               <div className="flex justify-end gap-3 pt-3 border-t">
                 <button type="button" onClick={() => setShowAddApptModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
                 <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Salvar Agendamento</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL ADICIONAR SERVIÇO */}
-      {showAddServiceModal && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4">
-            <h3 className="font-bold text-slate-900 text-lg">Novo Serviço</h3>
-            <form onSubmit={async (e) => {
-              e.preventDefault();
-              await supabase.from('servicos').insert([{ nome: serviceName, preco: parseFloat(servicePrice), profissional_id: userProfile.id }]);
-              setServiceName('');
-              setServicePrice('');
-              setShowAddServiceModal(false);
-              loadAppData();
-            }} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Nome do Serviço</label>
-                <input type="text" required value={serviceName} onChange={e => setServiceName(e.target.value)} placeholder="Ex: Corte Feminino" className="w-full border rounded-lg p-2.5 text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Preço (R$)</label>
-                <input type="number" step="0.01" required value={servicePrice} onChange={e => setServicePrice(e.target.value)} placeholder="50.00" className="w-full border rounded-lg p-2.5 text-sm" />
-              </div>
-              <div className="flex justify-end gap-3 pt-2">
-                <button type="button" onClick={() => setShowAddServiceModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
-                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-lg">Salvar Serviço</button>
               </div>
             </form>
           </div>
