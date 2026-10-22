@@ -22,7 +22,9 @@ import {
   Copy,
   CalendarCheck,
   MessageSquare,
-  AlertTriangle
+  AlertTriangle,
+  Edit,
+  RefreshCw
 } from 'lucide-react';
 
 export default function App() {
@@ -44,7 +46,7 @@ export default function App() {
   const [professionals, setProfessionals] = useState([]);
   const [licencas, setLicencas] = useState([]);
 
-  // Modal Novo Profissional & Licença
+  // Modal Novo Profissional
   const [showAddProModal, setShowAddProModal] = useState(false);
   const [newProName, setNewProName] = useState('');
   const [newProEmail, setNewProEmail] = useState('');
@@ -56,7 +58,22 @@ export default function App() {
   const [proModalError, setProModalError] = useState('');
   const [proModalSuccess, setProModalSuccess] = useState('');
 
-  // Estados da Agenda do Profissional e Agendamento Público
+  // Modal Editar Profissional
+  const [showEditProModal, setShowEditProModal] = useState(false);
+  const [editProId, setEditProId] = useState('');
+  const [editProName, setEditProName] = useState('');
+  const [editProEmail, setEditProEmail] = useState('');
+  const [editProPhone, setEditProPhone] = useState('');
+
+  // Modal Atualizar Plano / Licença
+  const [showPlanModal, setShowPlanModal] = useState(false);
+  const [planProId, setPlanProId] = useState('');
+  const [planProName, setPlanProName] = useState('');
+  const [planValor, setPlanValor] = useState('50.00');
+  const [planFormaPagto, setPlanFormaPagto] = useState('Pix');
+  const [planDias, setPlanDias] = useState(30);
+
+  // Estados da Agenda e Cliente Público
   const [publicProProfile, setPublicProProfile] = useState(null);
   const [publicServices, setPublicServices] = useState([]);
   const [clientName, setClientName] = useState('');
@@ -66,7 +83,7 @@ export default function App() {
   const [bookingTime, setBookingTime] = useState('');
   const [publicSuccess, setPublicSuccess] = useState(false);
 
-  // Verificar Sessão ao Iniciar
+  // Verificar Sessão
   useEffect(() => {
     if (publicProId) {
       loadPublicPageData(publicProId);
@@ -130,7 +147,6 @@ export default function App() {
     }
   };
 
-  // Calcular dias restantes até o vencimento
   const getDiasRestantes = (dataVencimento) => {
     if (!dataVencimento) return 0;
     const hoje = new Date();
@@ -141,10 +157,9 @@ export default function App() {
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   };
 
-  // Função para Enviar Lembrete via WhatsApp
   const enviarLembreteWhatsApp = (nomePro, telefonePro, dataVenc, diasRestantes) => {
     const numLimpo = (telefonePro || '').replace(/\D/g, '');
-    let msg = `Olá, ${nomePro}! %0A%0ASeu acesso ao AgendaPro Hair vence em ${diasRestantes <= 0 ? 'HOJE' : diasRestantes + ' dias'} (${dataVenc}).%0A%0APara manter sua agenda ativa sem interrupções, realize a renovação da sua licença mensal.%0A%0AQualquer dúvida estamos à disposição!`;
+    let msg = `Olá, ${nomePro}! %0A%0ASeu acesso ao AgendaPro Hair vence em ${diasRestantes <= 0 ? 'HOJE' : diasRestantes + ' dias'} (${dataVenc}).%0A%0APara manter sua agenda ativa sem interrupções, realize a renovação da sua licença.%0A%0AQualquer dúvida estamos à disposição!`;
 
     const url = numLimpo 
       ? `https://wa.me/55${numLimpo}?text=${msg}`
@@ -153,7 +168,71 @@ export default function App() {
     window.open(url, '_blank');
   };
 
-  // Login
+  // Abrir Modal de Edição de Profissional
+  const handleOpenEditModal = (pro) => {
+    setEditProId(pro.id);
+    setEditProName(pro.nome);
+    setEditProEmail(pro.email);
+    setEditProPhone(pro.telefone || '');
+    setShowEditProModal(true);
+  };
+
+  // Salvar Edição do Profissional
+  const handleSaveProEdit = async (e) => {
+    e.preventDefault();
+    const { error } = await supabase
+      .from('perfis')
+      .update({
+        nome: editProName,
+        email: editProEmail,
+        telefone: editProPhone
+      })
+      .eq('id', editProId);
+
+    if (!error) {
+      setShowEditProModal(false);
+      loadAppData();
+    } else {
+      alert('Erro ao atualizar cadastro.');
+    }
+  };
+
+  // Abrir Modal de Renovação/Alteração de Valor de Plano
+  const handleOpenPlanModal = (pro) => {
+    const lic = licencas.find(l => l.profissional_id === pro.id);
+    setPlanProId(pro.id);
+    setPlanProName(pro.nome);
+    setPlanValor(lic ? lic.valor : '50.00');
+    setPlanFormaPagto(lic ? lic.forma_pagamento : 'Pix');
+    setPlanDias(30);
+    setShowPlanModal(true);
+  };
+
+  // Salvar Novo Plano/Valor e Data de Vencimento
+  const handleSavePlan = async (e) => {
+    e.preventDefault();
+    const dataVenc = new Date();
+    dataVenc.setDate(dataVenc.getDate() + parseInt(planDias));
+
+    const { error } = await supabase.from('licencas').insert([{
+      profissional_id: planProId,
+      plano: 'Mensal',
+      valor: parseFloat(planValor),
+      forma_pagamento: planFormaPagto,
+      data_pagamento: new Date().toISOString().split('T')[0],
+      data_vencimento: dataVenc.toISOString().split('T')[0],
+      status: 'active'
+    }]);
+
+    if (!error) {
+      setShowPlanModal(false);
+      loadAppData();
+    } else {
+      alert('Erro ao atualizar plano.');
+    }
+  };
+
+  // Login & Logout
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
@@ -172,7 +251,7 @@ export default function App() {
     setUserProfile(null);
   };
 
-  // Cadastrar Profissional com Licença Financeira Inicial
+  // Cadastrar Novo Profissional
   const handleCreateProfessional = async (e) => {
     e.preventDefault();
     setProModalError('');
@@ -188,7 +267,6 @@ export default function App() {
       if (authError) throw authError;
 
       if (authData?.user) {
-        // 1. Criar Perfil
         await supabase.from('perfis').insert([{
           id: authData.user.id,
           nome: newProName,
@@ -198,11 +276,9 @@ export default function App() {
           status: 'active'
         }]);
 
-        // 2. Calcular Data de Vencimento
         const dataVenc = new Date();
         dataVenc.setDate(dataVenc.getDate() + parseInt(diasAcesso));
 
-        // 3. Registrar Licença
         await supabase.from('licencas').insert([{
           profissional_id: authData.user.id,
           plano: 'Mensal',
@@ -213,7 +289,7 @@ export default function App() {
           status: 'active'
         }]);
 
-        setProModalSuccess('Profissional e licença registradas com sucesso!');
+        setProModalSuccess('Profissional e licença registradas!');
         setNewProName('');
         setNewProEmail('');
         setNewProPhone('');
@@ -268,9 +344,7 @@ export default function App() {
     );
   }
 
-  // ==========================================
-  // PÁGINA PÚBLICA DE AGENDAMENTO (PARA CLIENTES)
-  // ==========================================
+  // PÁGINA PÚBLICA DE AGENDAMENTO
   if (publicProId) {
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
@@ -287,7 +361,7 @@ export default function App() {
             <div className="text-center py-8 space-y-3">
               <CheckCircle2 className="w-16 h-16 text-emerald-500 mx-auto" />
               <h2 className="text-xl font-bold text-slate-900">Agendamento Solicitado!</h2>
-              <p className="text-sm text-slate-600">Seu agendamento foi registrado na agenda do profissional.</p>
+              <p className="text-sm text-slate-600">Seu agendamento foi registrado com sucesso.</p>
               <button onClick={() => setPublicSuccess(false)} className="mt-4 bg-indigo-600 text-white px-6 py-2 rounded-lg text-sm font-semibold">
                 Fazer Novo Agendamento
               </button>
@@ -335,7 +409,7 @@ export default function App() {
     );
   }
 
-  // TELA DE LOGIN SE NÃO ESTIVER AUTENTICADO
+  // TELA DE LOGIN SE NÃO AUTENTICADO
   if (!session || !userProfile) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
@@ -375,12 +449,7 @@ export default function App() {
   // ==========================================
   if (userProfile.role === 'master') {
     const totalRecebido = licencas.reduce((acc, curr) => acc + (parseFloat(curr.valor) || 0), 0);
-    
-    // Filtrar licenças com vencimento nos próximos 7 dias (ou vencidas)
-    const licencasProximosVencimentos = licencas.filter(l => {
-      const dias = getDiasRestantes(l.data_vencimento);
-      return dias <= 7;
-    });
+    const licencasProximosVencimentos = licencas.filter(l => getDiasRestantes(l.data_vencimento) <= 7);
 
     return (
       <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row font-sans">
@@ -395,7 +464,7 @@ export default function App() {
 
           <nav className="flex-1 p-4 space-y-1">
             <button onClick={() => setActiveTab('master_profs')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'master_profs' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-              <Users className="w-5 h-5" /> Profissionais & Links
+              <Users className="w-5 h-5" /> Profissionais & Licenças
             </button>
             <button onClick={() => setActiveTab('master_finance')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'master_finance' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
               <DollarSign className="w-5 h-5" /> Controle Financeiro
@@ -420,13 +489,13 @@ export default function App() {
         </aside>
 
         <main className="flex-1 p-8 overflow-y-auto">
-          {/* ABA PROFISSIONAIS & LINKS */}
+          {/* PROFISSIONAIS & EDIÇÃO DE PLANOS */}
           {activeTab === 'master_profs' && (
             <div>
               <div className="flex justify-between items-center mb-6">
                 <div>
                   <h2 className="text-2xl font-bold text-slate-900">Profissionais & Licenças Cadastradas</h2>
-                  <p className="text-sm text-slate-500 mt-1">Gerencie os acessos, licenças e links de agendamento das cabeleireiras.</p>
+                  <p className="text-sm text-slate-500 mt-1">Gerencie os cadastros, valores dos planos e renovações.</p>
                 </div>
                 <button onClick={() => setShowAddProModal(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 shadow">
                   <UserPlus className="w-4 h-4" /> Cadastrar Novo Profissional
@@ -441,7 +510,7 @@ export default function App() {
 
                   return (
                     <div key={p.id} className="p-4 border rounded-xl bg-slate-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                      <div className="space-y-1">
+                      <div className="space-y-1 flex-1">
                         <div className="flex items-center gap-2">
                           <h4 className="font-bold text-slate-900 text-base">{p.nome}</h4>
                           <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${p.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
@@ -451,8 +520,8 @@ export default function App() {
                         <p className="text-xs text-slate-500">{p.email} • WhatsApp: {p.telefone || 'Não informado'}</p>
                         
                         {licencaPro && (
-                          <div className="flex items-center gap-3 text-xs text-slate-600 pt-1">
-                            <span>Valor Licença: <strong className="text-emerald-700">R$ {parseFloat(licencaPro.valor).toFixed(2)}</strong></span>
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 pt-1">
+                            <span>Valor Plano: <strong className="text-emerald-700">R$ {parseFloat(licencaPro.valor).toFixed(2)}</strong></span>
                             <span>• Vencimento: <strong>{licencaPro.data_vencimento}</strong></span>
                             <span className={`font-bold px-2 py-0.5 rounded ${diasRestantes <= 5 ? 'bg-rose-100 text-rose-700' : 'bg-indigo-50 text-indigo-700'}`}>
                               {diasRestantes <= 0 ? 'Vencido' : `${diasRestantes} dias restantes`}
@@ -472,12 +541,26 @@ export default function App() {
                       </div>
 
                       {p.role !== 'master' && (
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button 
+                            onClick={() => handleOpenEditModal(p)}
+                            className="bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5"
+                          >
+                            <Edit className="w-3.5 h-3.5" /> Editar Cadastro
+                          </button>
+
+                          <button 
+                            onClick={() => handleOpenPlanModal(p)}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" /> Renovar / Alterar Valor
+                          </button>
+
                           <button 
                             onClick={() => enviarLembreteWhatsApp(p.nome, p.telefone, licencaPro?.data_vencimento, diasRestantes)}
                             className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow"
                           >
-                            <MessageSquare className="w-4 h-4" /> Lembrete Whats
+                            <MessageSquare className="w-3.5 h-3.5" /> Whats
                           </button>
                         </div>
                       )}
@@ -488,12 +571,12 @@ export default function App() {
             </div>
           )}
 
-          {/* ABA CONTROLE FINANCEIRO */}
+          {/* FINANCEIRO */}
           {activeTab === 'master_finance' && (
             <div>
               <div className="mb-6">
                 <h2 className="text-2xl font-bold text-slate-900">Controle Financeiro de Licenças</h2>
-                <p className="text-sm text-slate-500 mt-1">Histórico completo de pagamentos e liquidações das cabeleireiras.</p>
+                <p className="text-sm text-slate-500 mt-1">Histórico de pagamentos e liquidações das cabeleireiras.</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
@@ -523,55 +606,45 @@ export default function App() {
                       <th className="p-3">Forma Pagto</th>
                       <th className="p-3">Valor</th>
                       <th className="p-3">Vencimento</th>
-                      <th className="p-3">Dias Restantes</th>
                       <th className="p-3">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {licencas.map(l => {
-                      const dias = getDiasRestantes(l.data_vencimento);
-                      return (
-                        <tr key={l.id} className="hover:bg-slate-50">
-                          <td className="p-3 font-semibold text-slate-900">{l.perfis?.nome || 'Cabeleireira'}</td>
-                          <td className="p-3 text-slate-600">{l.data_pagamento}</td>
-                          <td className="p-3 text-slate-600"><span className="px-2 py-1 bg-slate-100 border rounded text-xs">{l.forma_pagamento}</span></td>
-                          <td className="p-3 font-bold text-emerald-700">R$ {parseFloat(l.valor).toFixed(2)}</td>
-                          <td className="p-3 text-slate-600 font-medium">{l.data_vencimento}</td>
-                          <td className="p-3">
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${dias <= 5 ? 'bg-rose-100 text-rose-800' : 'bg-indigo-100 text-indigo-800'}`}>
-                              {dias <= 0 ? 'Vencido' : `${dias} dias`}
-                            </span>
-                          </td>
-                          <td className="p-3">
-                            <button 
-                              onClick={() => enviarLembreteWhatsApp(l.perfis?.nome, l.perfis?.telefone, l.data_vencimento, dias)}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-2.5 py-1.5 rounded font-semibold flex items-center gap-1"
-                            >
-                              <MessageSquare className="w-3.5 h-3.5" /> Whats
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {licencas.map(l => (
+                      <tr key={l.id} className="hover:bg-slate-50">
+                        <td className="p-3 font-semibold text-slate-900">{l.perfis?.nome || 'Cabeleireira'}</td>
+                        <td className="p-3 text-slate-600">{l.data_pagamento}</td>
+                        <td className="p-3 text-slate-600"><span className="px-2 py-1 bg-slate-100 border rounded text-xs">{l.forma_pagamento}</span></td>
+                        <td className="p-3 font-bold text-emerald-700">R$ {parseFloat(l.valor).toFixed(2)}</td>
+                        <td className="p-3 text-slate-600 font-medium">{l.data_vencimento}</td>
+                        <td className="p-3">
+                          <button 
+                            onClick={() => enviarLembreteWhatsApp(l.perfis?.nome, l.perfis?.telefone, l.data_vencimento, getDiasRestantes(l.data_vencimento))}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-2.5 py-1.5 rounded font-semibold flex items-center gap-1"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" /> Whats
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
             </div>
           )}
 
-          {/* ABA PRÓXIMOS VENCIMENTOS (7 DIAS) */}
+          {/* PRÓXIMOS VENCIMENTOS */}
           {activeTab === 'master_vencimentos' && (
             <div>
               <div className="mb-6">
                 <h2 className="text-2xl font-bold text-slate-900">Próximos Vencimentos (Até 7 Dias)</h2>
-                <p className="text-sm text-slate-500 mt-1">Lista de profissionais com renovação próxima para envio de cobrança preventiva.</p>
+                <p className="text-sm text-slate-500 mt-1">Lista de cabeleireiras com renovação próxima.</p>
               </div>
 
               {licencasProximosVencimentos.length === 0 ? (
                 <div className="bg-white rounded-xl border p-8 text-center text-slate-500">
                   <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-2" />
                   <p className="font-semibold text-slate-800">Nenhum vencimento para os próximos 7 dias!</p>
-                  <p className="text-xs text-slate-500 mt-1">Todas as licenças estão em dia com prazo superior a 7 dias.</p>
                 </div>
               ) : (
                 <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm overflow-x-auto">
@@ -581,36 +654,27 @@ export default function App() {
                         <th className="p-3">Profissional</th>
                         <th className="p-3">E-mail / Whats</th>
                         <th className="p-3">Data Vencimento</th>
-                        <th className="p-3">Prazo</th>
                         <th className="p-3">Valor Mensalidade</th>
                         <th className="p-3">Cobrança WhatsApp</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {licencasProximosVencimentos.map(l => {
-                        const dias = getDiasRestantes(l.data_vencimento);
-                        return (
-                          <tr key={l.id} className="hover:bg-slate-50">
-                            <td className="p-3 font-bold text-slate-900">{l.perfis?.nome}</td>
-                            <td className="p-3 text-slate-600 text-xs">{l.perfis?.email}<br/>{l.perfis?.telefone || 'Sem Whats'}</td>
-                            <td className="p-3 font-semibold text-slate-800">{l.data_vencimento}</td>
-                            <td className="p-3">
-                              <span className={`px-3 py-1 rounded-full text-xs font-bold ${dias <= 0 ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'}`}>
-                                {dias <= 0 ? 'Vencido' : `Vence em ${dias} dias`}
-                              </span>
-                            </td>
-                            <td className="p-3 font-bold text-emerald-700">R$ {parseFloat(l.valor).toFixed(2)}</td>
-                            <td className="p-3">
-                              <button 
-                                onClick={() => enviarLembreteWhatsApp(l.perfis?.nome, l.perfis?.telefone, l.data_vencimento, dias)}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 shadow"
-                              >
-                                <MessageSquare className="w-4 h-4" /> Cobrar via Whats
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                      {licencasProximosVencimentos.map(l => (
+                        <tr key={l.id} className="hover:bg-slate-50">
+                          <td className="p-3 font-bold text-slate-900">{l.perfis?.nome}</td>
+                          <td className="p-3 text-slate-600 text-xs">{l.perfis?.email}<br/>{l.perfis?.telefone || 'Sem Whats'}</td>
+                          <td className="p-3 font-semibold text-slate-800">{l.data_vencimento}</td>
+                          <td className="p-3 font-bold text-emerald-700">R$ {parseFloat(l.valor).toFixed(2)}</td>
+                          <td className="p-3">
+                            <button 
+                              onClick={() => enviarLembreteWhatsApp(l.perfis?.nome, l.perfis?.telefone, l.data_vencimento, getDiasRestantes(l.data_vencimento))}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 shadow"
+                            >
+                              <MessageSquare className="w-4 h-4" /> Cobrar via Whats
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -619,7 +683,7 @@ export default function App() {
           )}
         </main>
 
-        {/* MODAL CADASTRAR PROFISSIONAL + LICENÇA */}
+        {/* MODAL CADASTRAR PROFISSIONAL */}
         {showAddProModal && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4">
@@ -678,7 +742,77 @@ export default function App() {
 
                 <div className="flex justify-end gap-3 pt-3">
                   <button type="button" onClick={() => setShowAddProModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
-                  <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Cadastrar & Liberar Acesso</button>
+                  <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Cadastrar & Liberar</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL EDITAR CADASTRO DO PROFISSIONAL */}
+        {showEditProModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
+              <div className="flex justify-between items-center border-b pb-3">
+                <h3 className="font-bold text-slate-900 text-lg">Editar Cadastro</h3>
+                <button onClick={() => setShowEditProModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
+              </div>
+
+              <form onSubmit={handleSaveProEdit} className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Nome / Salão</label>
+                  <input type="text" required value={editProName} onChange={e => setEditProName(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">E-mail</label>
+                  <input type="email" required value={editProEmail} onChange={e => setEditProEmail(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp</label>
+                  <input type="tel" required value={editProPhone} onChange={e => setEditProPhone(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-3">
+                  <button type="button" onClick={() => setShowEditProModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+                  <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Salvar Alterações</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL RENOVAR / EDITAR PLANO E VALOR */}
+        {showPlanModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
+              <div className="flex justify-between items-center border-b pb-3">
+                <h3 className="font-bold text-slate-900 text-lg">Renovar / Alterar Plano ({planProName})</h3>
+                <button onClick={() => setShowPlanModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
+              </div>
+
+              <form onSubmit={handleSavePlan} className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Valor do Plano (R$)</label>
+                  <input type="number" step="0.01" required value={planValor} onChange={e => setPlanValor(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Forma de Pagamento</label>
+                  <select value={planFormaPagto} onChange={e => setPlanFormaPagto(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm">
+                    <option value="Pix">Pix</option>
+                    <option value="Cartão">Cartão</option>
+                    <option value="Dinheiro">Dinheiro</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Renovar Acesso Por (Dias)</label>
+                  <input type="number" required value={planDias} onChange={e => setPlanDias(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-3">
+                  <button type="button" onClick={() => setShowPlanModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+                  <button type="submit" className="px-4 py-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow">Registrar Pagamento</button>
                 </div>
               </form>
             </div>
