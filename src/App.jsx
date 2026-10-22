@@ -20,16 +20,16 @@ import {
   MessageSquare,
   AlertTriangle,
   Edit,
-  RefreshCw
+  RefreshCw,
+  CalendarPlus,
+  Check
 } from 'lucide-react';
 
 // Instância secundária para criar usuários sem deslogar o Master
 const SUPABASE_URL = 'https://ujdaesnmqhkzefqdwygk.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_PWOqJOgpsoJQT3FNDxB-Tw_5jURYgth';
 const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    persistSession: false // Não substitui o login Master atual
-  }
+  auth: { persistSession: false }
 });
 
 export default function App() {
@@ -51,7 +51,7 @@ export default function App() {
   const [professionals, setProfessionals] = useState([]);
   const [licencas, setLicencas] = useState([]);
 
-  // Modal Novo Profissional
+  // Modal Novo Profissional (Master)
   const [showAddProModal, setShowAddProModal] = useState(false);
   const [newProName, setNewProName] = useState('');
   const [newProEmail, setNewProEmail] = useState('');
@@ -69,10 +69,20 @@ export default function App() {
   const [proServices, setProServices] = useState([]);
   const [proAppointments, setProAppointments] = useState([]);
 
-  // Modal Serviço
+  // Modais da Profissional
   const [showAddServiceModal, setShowAddServiceModal] = useState(false);
   const [serviceName, setServiceName] = useState('');
   const [servicePrice, setServicePrice] = useState('');
+
+  // Modal Agendamento Manual (Profissional)
+  const [showAddApptModal, setShowAddApptModal] = useState(false);
+  const [apptClientType, setApptClientType] = useState('existing'); // existing ou new
+  const [selectedClientId, setSelectedClientId] = useState('');
+  const [manualClientName, setManualClientName] = useState('');
+  const [manualClientPhone, setManualClientPhone] = useState('');
+  const [manualServiceId, setManualServiceId] = useState('');
+  const [manualDate, setManualDate] = useState('');
+  const [manualTime, setManualTime] = useState('');
 
   // Estados da Página Pública
   const [publicProProfile, setPublicProProfile] = useState(null);
@@ -146,9 +156,9 @@ export default function App() {
       setProfessionals(profs || []);
       setLicencas(lics || []);
     } else if (userProfile) {
-      const { data: cli } = await supabase.from('clientes').select('*').eq('profissional_id', userProfile.id);
+      const { data: cli } = await supabase.from('clientes').select('*').eq('profissional_id', userProfile.id).order('nome', { ascending: true });
       const { data: srv } = await supabase.from('servicos').select('*').eq('profissional_id', userProfile.id);
-      const { data: appt } = await supabase.from('agendamentos').select('*, clientes(nome, telefone), servicos(nome, preco)').eq('profissional_id', userProfile.id);
+      const { data: appt } = await supabase.from('agendamentos').select('*, clientes(nome, telefone), servicos(nome, preco)').eq('profissional_id', userProfile.id).order('data', { ascending: true });
 
       setProClients(cli || []);
       setProServices(srv || []);
@@ -156,14 +166,13 @@ export default function App() {
     }
   };
 
-  // Cadastrar Novo Profissional Sem Deslogar o Master
+  // Cadastrar Novo Profissional (Master)
   const handleCreateProfessional = async (e) => {
     e.preventDefault();
     setProModalError('');
     setProModalSuccess('');
 
     try {
-      // Usando supabaseAdmin para NÃO sobrescrever a sessão Master
       const { data: authData, error: authError } = await supabaseAdmin.auth.signUp({
         email: newProEmail,
         password: newProPassword,
@@ -173,7 +182,6 @@ export default function App() {
       if (authError) throw authError;
 
       if (authData?.user) {
-        // Criar perfil na tabela
         await supabase.from('perfis').insert([{
           id: authData.user.id,
           nome: newProName,
@@ -183,7 +191,6 @@ export default function App() {
           status: 'active'
         }]);
 
-        // Criar licença inicial
         const dataVenc = new Date();
         dataVenc.setDate(dataVenc.getDate() + parseInt(diasAcesso));
 
@@ -209,6 +216,66 @@ export default function App() {
     } catch (err) {
       setProModalError(err.message || 'Erro ao cadastrar profissional.');
     }
+  };
+
+  // Cadastrar Agendamento Manual (Profissional)
+  const handleAddManualAppointment = async (e) => {
+    e.preventDefault();
+    try {
+      let finalClientId = selectedClientId;
+
+      // Se for cliente novo, cria primeiro na tabela clientes
+      if (apptClientType === 'new') {
+        const { data: newCli, error: cliErr } = await supabase.from('clientes').insert([{
+          nome: manualClientName,
+          telefone: manualClientPhone,
+          profissional_id: userProfile.id
+        }]).select().single();
+
+        if (cliErr) throw cliErr;
+        finalClientId = newCli.id;
+      }
+
+      // Salvar agendamento
+      const { error: apptErr } = await supabase.from('agendamentos').insert([{
+        cliente_id: finalClientId,
+        profissional_id: userProfile.id,
+        servico_id: manualServiceId,
+        data: manualDate,
+        horario: manualTime,
+        status: 'confirmado'
+      }]);
+
+      if (apptErr) throw apptErr;
+
+      setShowAddApptModal(false);
+      setManualClientName('');
+      setManualClientPhone('');
+      setSelectedClientId('');
+      setManualServiceId('');
+      setManualDate('');
+      setManualTime('');
+      loadAppData();
+    } catch (err) {
+      alert('Erro ao criar agendamento: ' + err.message);
+    }
+  };
+
+  // Enviar Lembrete / Pedido de Confirmação via WhatsApp
+  const enviarConfirmacaoWhatsApp = (nomeCliente, telefoneCliente, data, horario, servicoNome) => {
+    const numLimpo = (telefoneCliente || '').replace(/\D/g, '');
+    if (!numLimpo) {
+      alert('Esta cliente não tem um telefone cadastrado.');
+      return;
+    }
+
+    // Formatar data para exibição (DD/MM/AAAA)
+    const partesData = data.split('-');
+    const dataFormatada = `${partesData[2]}/${partesData[1]}/${partesData[0]}`;
+
+    const msg = `Olá, ${nomeCliente}! %0A%0APassando para lembrar do seu agendamento no salão *${userProfile?.nome}*:%0A%0A🗓️ *Data:* ${dataFormatada}%0A⏰ *Horário:* ${horario}%0A💇‍♀️ *Serviço:* ${servicoNome}%0A%0APor favor, responda esta mensagem confirmando a sua presença! 😊`;
+
+    window.open(`https://wa.me/55${numLimpo}?text=${msg}`, '_blank');
   };
 
   const handleLogin = async (e) => {
@@ -485,20 +552,48 @@ export default function App() {
       <main className="flex-1 p-8 overflow-y-auto">
         {proTab === 'agenda' && (
           <div>
-            <h2 className="text-2xl font-bold text-slate-900 mb-4">Meus Agendamentos</h2>
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900">Meus Agendamentos</h2>
+                <p className="text-sm text-slate-500 mt-1">Gerencie os horários marcados e envie lembretes via WhatsApp.</p>
+              </div>
+              <button 
+                onClick={() => setShowAddApptModal(true)}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 shadow"
+              >
+                <CalendarPlus className="w-4 h-4" /> Novo Agendamento Manual
+              </button>
+            </div>
+
             <div className="bg-white rounded-xl border p-6 shadow-sm space-y-3">
               {proAppointments.length === 0 ? (
                 <p className="text-slate-500 text-sm">Nenhum agendamento gravado ainda.</p>
               ) : (
                 proAppointments.map(a => (
-                  <div key={a.id} className="p-4 border rounded-lg flex justify-between items-center bg-slate-50">
+                  <div key={a.id} className="p-4 border rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center bg-slate-50 gap-4">
                     <div>
-                      <h4 className="font-bold text-slate-900">{a.clientes?.nome} ({a.clientes?.telefone})</h4>
-                      <p className="text-xs text-slate-500">Serviço: {a.servicos?.nome} • R$ {a.servicos?.preco}</p>
+                      <h4 className="font-bold text-slate-900 text-base">{a.clientes?.nome}</h4>
+                      <p className="text-xs text-slate-500">WhatsApp: {a.clientes?.telefone || 'Não informado'}</p>
+                      <p className="text-xs text-indigo-600 font-semibold mt-1">
+                        Serviço: {a.servicos?.nome} — R$ {parseFloat(a.servicos?.preco || 0).toFixed(2)}
+                      </p>
                     </div>
-                    <div className="text-right">
-                      <span className="font-bold text-indigo-600 block">{a.data} às {a.horario}</span>
-                      <span className="text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">{a.status}</span>
+
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <span className="font-bold text-slate-900 block text-sm">{a.data} às {a.horario}</span>
+                        <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-semibold uppercase">
+                          {a.status}
+                        </span>
+                      </div>
+
+                      <button 
+                        onClick={() => enviarConfirmacaoWhatsApp(a.clientes?.nome, a.clientes?.telefone, a.data, a.horario, a.servicos?.nome)}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow"
+                        title="Enviar Lembrete de Véspera"
+                      >
+                        <MessageSquare className="w-4 h-4" /> Solicitar Confirmação
+                      </button>
                     </div>
                   </div>
                 ))
@@ -540,6 +635,157 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* MODAL NOVO AGENDAMENTO MANUAL */}
+      {showAddApptModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-bold text-slate-900 text-lg">Agendamento Manual / Avulso</h3>
+              <button onClick={() => setShowAddApptModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
+            </div>
+
+            <form onSubmit={handleAddManualAppointment} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo de Cliente</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                    <input 
+                      type="radio" 
+                      name="clientType" 
+                      checked={apptClientType === 'existing'} 
+                      onChange={() => setApptClientType('existing')} 
+                    /> Cliente Já Cadastrada
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                    <input 
+                      type="radio" 
+                      name="clientType" 
+                      checked={apptClientType === 'new'} 
+                      onChange={() => setApptClientType('new')} 
+                    /> Nova Cliente
+                  </label>
+                </div>
+              </div>
+
+              {apptClientType === 'existing' ? (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Selecione a Cliente</label>
+                  <select 
+                    required 
+                    value={selectedClientId} 
+                    onChange={e => setSelectedClientId(e.target.value)} 
+                    className="w-full border rounded-lg p-2.5 text-sm"
+                  >
+                    <option value="">Selecione uma cliente...</option>
+                    {proClients.map(c => (
+                      <option key={c.id} value={c.id}>{c.nome} ({c.telefone})</option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Nome da Cliente</label>
+                    <input 
+                      type="text" 
+                      required 
+                      value={manualClientName} 
+                      onChange={e => setManualClientName(e.target.value)} 
+                      placeholder="Ex: Maria Clara" 
+                      className="w-full border rounded-lg p-2.5 text-sm" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp</label>
+                    <input 
+                      type="tel" 
+                      required 
+                      value={manualClientPhone} 
+                      onChange={e => setManualClientPhone(e.target.value)} 
+                      placeholder="(47) 99999-9999" 
+                      className="w-full border rounded-lg p-2.5 text-sm" 
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Serviço</label>
+                <select 
+                  required 
+                  value={manualServiceId} 
+                  onChange={e => setManualServiceId(e.target.value)} 
+                  className="w-full border rounded-lg p-2.5 text-sm"
+                >
+                  <option value="">Selecione o serviço...</option>
+                  {proServices.map(s => (
+                    <option key={s.id} value={s.id}>{s.nome} — R$ {parseFloat(s.preco).toFixed(2)}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Data</label>
+                  <input 
+                    type="date" 
+                    required 
+                    value={manualDate} 
+                    onChange={e => setManualDate(e.target.value)} 
+                    className="w-full border rounded-lg p-2.5 text-sm" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Horário</label>
+                  <input 
+                    type="time" 
+                    required 
+                    value={manualTime} 
+                    onChange={e => setManualTime(e.target.value)} 
+                    className="w-full border rounded-lg p-2.5 text-sm" 
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t">
+                <button type="button" onClick={() => setShowAddApptModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Salvar Agendamento</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL ADICIONAR SERVIÇO */}
+      {showAddServiceModal && (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4">
+            <h3 className="font-bold text-slate-900 text-lg">Novo Serviço</h3>
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              await supabase.from('servicos').insert([{ nome: serviceName, preco: parseFloat(servicePrice), profissional_id: userProfile.id }]);
+              setServiceName('');
+              setServicePrice('');
+              setShowAddServiceModal(false);
+              loadAppData();
+            }} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nome do Serviço</label>
+                <input type="text" required value={serviceName} onChange={e => setServiceName(e.target.value)} placeholder="Ex: Corte Feminino" className="w-full border rounded-lg p-2.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Preço (R$)</label>
+                <input type="number" step="0.01" required value={servicePrice} onChange={e => setServicePrice(e.target.value)} placeholder="50.00" className="w-full border rounded-lg p-2.5 text-sm" />
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setShowAddServiceModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
+                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-lg">Salvar Serviço</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
