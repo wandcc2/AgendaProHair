@@ -29,7 +29,8 @@ import {
   ChevronUp,
   Check,
   X,
-  Settings
+  Settings,
+  CalendarOff
 } from 'lucide-react';
 
 const SUPABASE_URL = 'https://ujdaesnmqhkzefqdwygk.supabase.co';
@@ -37,6 +38,16 @@ const SUPABASE_ANON_KEY = 'sb_publishable_PWOqJOgpsoJQT3FNDxB-Tw_5jURYgth';
 const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: false }
 });
+
+const DIAS_NOME = [
+  'Domingo',
+  'Segunda-feira',
+  'Terça-feira',
+  'Quarta-feira',
+  'Quinta-feira',
+  'Sexta-feira',
+  'Sábado'
+];
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -55,7 +66,6 @@ export default function App() {
   // Master
   const [activeTab, setActiveTab] = useState('master_profs');
   const [professionals, setProfessionals] = useState([]);
-  const [licencas, setLicencas] = useState([]);
 
   // Modal Novo Profissional (Master)
   const [showAddProModal, setShowAddProModal] = useState(false);
@@ -76,9 +86,19 @@ export default function App() {
   const [proAppointments, setProAppointments] = useState([]);
   const [expandedServiceId, setExpandedServiceId] = useState(null);
 
-  // Configuração de Horário do Profissional
-  const [horaInicio, setHoraInicio] = useState('08:00');
-  const [horaFim, setHoraFim] = useState('18:00');
+  // Configuração de Horários da Semana e Folgas
+  const [weeklySchedule, setWeeklySchedule] = useState(
+    DIAS_NOME.map((nome, idx) => ({
+      dia_semana: idx,
+      nome,
+      ativo: idx >= 1 && idx <= 6, // Segunda a Sábado ativos por padrão
+      hora_inicio: '08:00',
+      hora_fim: '18:00'
+    }))
+  );
+  const [offDays, setOffDays] = useState([]);
+  const [newOffDate, setNewOffDate] = useState('');
+  const [newOffMotivo, setNewOffMotivo] = useState('');
   const [configSuccess, setConfigSuccess] = useState('');
 
   // Modal Criar/Editar Serviço
@@ -109,6 +129,8 @@ export default function App() {
   // Página Pública
   const [publicProProfile, setPublicProProfile] = useState(null);
   const [publicServices, setPublicServices] = useState([]);
+  const [publicWeeklySchedule, setPublicWeeklySchedule] = useState([]);
+  const [publicOffDays, setPublicOffDays] = useState([]);
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [selectedService, setSelectedService] = useState('');
@@ -144,8 +166,13 @@ export default function App() {
     try {
       const { data: pro } = await supabase.from('perfis').select('*').eq('id', proId).single();
       const { data: srv } = await supabase.from('servicos').select('*').eq('profissional_id', proId);
+      const { data: hs } = await supabase.from('horarios_semana').select('*').eq('profissional_id', proId);
+      const { data: off } = await supabase.from('folgas_feriados').select('*').eq('profissional_id', proId);
+
       setPublicProProfile(pro);
       setPublicServices(srv || []);
+      setPublicWeeklySchedule(hs || []);
+      setPublicOffDays(off || []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -158,8 +185,6 @@ export default function App() {
       const { data, error } = await supabase.from('perfis').select('*').eq('id', userId).single();
       if (error) throw error;
       setUserProfile(data);
-      if (data?.hora_inicio) setHoraInicio(data.hora_inicio);
-      if (data?.hora_fim) setHoraFim(data.hora_fim);
     } catch (error) {
       console.error('Erro ao buscar perfil:', error);
     } finally {
@@ -176,48 +201,87 @@ export default function App() {
   const loadAppData = async () => {
     if (userProfile?.role === 'master') {
       const { data: profs } = await supabase.from('perfis').select('*').order('created_at', { ascending: false });
-      const { data: lics } = await supabase.from('licencas').select('*, perfis(nome, email, telefone)').order('created_at', { ascending: false });
       setProfessionals(profs || []);
-      setLicencas(lics || []);
     } else if (userProfile) {
       const { data: cli } = await supabase.from('clientes').select('*').eq('profissional_id', userProfile.id).order('nome', { ascending: true });
       const { data: srv } = await supabase.from('servicos').select('*').eq('profissional_id', userProfile.id).order('nome', { ascending: true });
       const { data: appt } = await supabase.from('agendamentos').select('*, clientes(nome, telefone), servicos(nome, preco)').eq('profissional_id', userProfile.id).order('data', { ascending: true });
 
+      // Carregar Horários da Semana
+      const { data: hs } = await supabase.from('horarios_semana').select('*').eq('profissional_id', userProfile.id);
+      if (hs && hs.length > 0) {
+        setWeeklySchedule(prev => prev.map(item => {
+          const enc = hs.find(h => h.dia_semana === item.dia_semana);
+          return enc ? { ...item, ativo: enc.ativo, hora_inicio: enc.hora_inicio.substring(0,5), hora_fim: enc.hora_fim.substring(0,5) } : item;
+        }));
+      }
+
+      // Carregar Folgas / Feriados
+      const { data: off } = await supabase.from('folgas_feriados').select('*').eq('profissional_id', userProfile.id).order('data', { ascending: true });
+
       setProClients(cli || []);
       setProServices(srv || []);
       setProAppointments(appt || []);
+      setOffDays(off || []);
     }
   };
 
-  const salvarHorarioAtendimento = async (e) => {
+  const handleWeeklyScheduleChange = (index, field, value) => {
+    const updated = [...weeklySchedule];
+    updated[index][field] = value;
+    setWeeklySchedule(updated);
+  };
+
+  const salvarHorarioSemana = async (e) => {
     e.preventDefault();
     setConfigSuccess('');
 
-    const { error } = await supabase.from('perfis').update({
-      hora_inicio: horaInicio,
-      hora_fim: horaFim
-    }).eq('id', userProfile.id);
+    try {
+      for (const item of weeklySchedule) {
+        const { error } = await supabase.from('horarios_semana').upsert({
+          profissional_id: userProfile.id,
+          dia_semana: item.dia_semana,
+          ativo: item.ativo,
+          hora_inicio: item.hora_inicio,
+          hora_fim: item.hora_fim
+        }, { onConflict: 'profissional_id,dia_semana' });
 
-    if (!error) {
-      setConfigSuccess('Horário de atendimento atualizado com sucesso!');
+        if (error) throw error;
+      }
+
+      setConfigSuccess('Horários de atendimento salvos com sucesso!');
       setTimeout(() => setConfigSuccess(''), 3000);
-    } else {
-      alert('Erro ao salvar horário.');
+    } catch (err) {
+      alert('Erro ao salvar horários: ' + err.message);
     }
   };
 
-  const enviarLinkAgendamentoWhats = (nomeCliente, telefoneCliente) => {
-    const numLimpo = (telefoneCliente || '').replace(/\D/g, '');
-    if (!numLimpo) {
-      alert('Esta cliente não possui telefone/WhatsApp cadastrado.');
-      return;
+  const handleAddOffDay = async (e) => {
+    e.preventDefault();
+    if (!newOffDate) return;
+
+    try {
+      const { error } = await supabase.from('folgas_feriados').insert([{
+        profissional_id: userProfile.id,
+        data: newOffDate,
+        motivo: newOffMotivo || 'Folga / Feriado'
+      }]);
+
+      if (error) throw error;
+
+      setNewOffDate('');
+      setNewOffMotivo('');
+      loadAppData();
+    } catch (err) {
+      alert('Erro ao adicionar folga: ' + err.message);
     }
+  };
 
-    const linkPublico = `${window.location.origin}/?pro=${userProfile?.id}`;
-    const msg = `Olá, ${nomeCliente}! %0A%0AAgora você pode agendar seus horários no salão *${userProfile?.nome}* diretamente pelo nosso site de agendamento online! %0A%0AAcesse o link abaixo para escolher o melhor dia e horário:%0A${linkPublico}%0A%0ATe esperamos! 😊`;
-
-    window.open(`https://wa.me/55${numLimpo}?text=${msg}`, '_blank');
+  const handleDeleteOffDay = async (id) => {
+    if (window.confirm('Deseja remover esta folga/feriado?')) {
+      await supabase.from('folgas_feriados').delete().eq('id', id);
+      loadAppData();
+    }
   };
 
   const handleOpenAddServiceModal = () => {
@@ -340,19 +404,6 @@ export default function App() {
           status: 'active'
         }]);
 
-        const dataVenc = new Date();
-        dataVenc.setDate(dataVenc.getDate() + parseInt(diasAcesso));
-
-        await supabase.from('licencas').insert([{
-          profissional_id: authData.user.id,
-          plano: 'Mensal',
-          valor: parseFloat(planoValor),
-          forma_pagamento: formaPagamento,
-          data_pagamento: new Date().toISOString().split('T')[0],
-          data_vencimento: dataVenc.toISOString().split('T')[0],
-          status: 'active'
-        }]);
-
         setProModalSuccess('Profissional cadastrado com sucesso!');
         setNewProName('');
         setNewProEmail('');
@@ -407,17 +458,41 @@ export default function App() {
     }
   };
 
+  // Submissão do Agendamento Público com Validação de Folgas/Feriados e Semana
   const handlePublicBookingSubmit = async (e) => {
     e.preventDefault();
     try {
-      const hInicio = publicProProfile?.hora_inicio || '08:00';
-      const hFim = publicProProfile?.hora_fim || '18:00';
-
-      if (bookingTime < hInicio || bookingTime > hFim) {
-        alert(`O salão atende somente entre ${hInicio.substring(0,5)} e ${hFim.substring(0,5)}. Por favor, escolha outro horário dentro do expediente.`);
+      // 1. Validar se a data é Folga ou Feriado
+      const folga = publicOffDays.find(o => o.data === bookingDate);
+      if (folga) {
+        alert(`O salão não atenderá nesta data (${bookingDate.split('-').reverse().join('/')}). Motivo: ${folga.motivo}`);
         return;
       }
 
+      // 2. Descobrir dia da semana da data selecionada (0 = Dom, 6 = Sáb)
+      const dateParts = bookingDate.split('-');
+      const dateObj = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
+      const diaSemanaIndex = dateObj.getDay();
+
+      // Busca na grade semanal
+      const regraDia = publicWeeklySchedule.find(h => h.dia_semana === diaSemanaIndex);
+
+      if (regraDia) {
+        if (!regraDia.ativo) {
+          alert(`O salão não realiza atendimentos nas ${DIAS_NOME[diaSemanaIndex]}s.`);
+          return;
+        }
+
+        const hInic = regraDia.hora_inicio.substring(0, 5);
+        const hFim = regraDia.hora_fim.substring(0, 5);
+
+        if (bookingTime < hInic || bookingTime > hFim) {
+          alert(`Nas ${DIAS_NOME[diaSemanaIndex]}s o salão atende somente entre ${hInic} e ${hFim}. Por favor, escolha outro horário.`);
+          return;
+        }
+      }
+
+      // 3. Validar se o horário já está reservado
       const { data: busy } = await supabase.from('agendamentos')
         .select('*')
         .eq('profissional_id', publicProId)
@@ -430,6 +505,7 @@ export default function App() {
         return;
       }
 
+      // 4. Cadastrar / Localizar Cliente
       let { data: cli } = await supabase.from('clientes')
         .select('*')
         .eq('telefone', clientPhone)
@@ -447,6 +523,7 @@ export default function App() {
         cli = newCli;
       }
 
+      // 5. Inserir Agendamento em estado PENDENTE
       const { error: apptInsertErr } = await supabase.from('agendamentos').insert([{ 
         cliente_id: cli.id, 
         profissional_id: publicProId, 
@@ -462,7 +539,7 @@ export default function App() {
       setPublicSuccess(true);
     } catch (e) {
       console.error(e);
-      alert('Erro ao solicitar agendamento: ' + (e.message || 'Verifique as permissões.'));
+      alert('Erro ao solicitar agendamento: ' + (e.message || 'Verifique os dados.'));
     }
   };
 
@@ -516,9 +593,7 @@ export default function App() {
               <Scissors className="w-7 h-7" />
             </div>
             <h1 className="text-2xl font-bold text-slate-900">{publicProProfile?.nome || 'Agenda Online'}</h1>
-            <p className="text-xs text-slate-500 mt-1">
-              Horário de Atendimento: <strong className="text-slate-700">{publicProProfile?.hora_inicio?.substring(0,5) || '08:00'} às {publicProProfile?.hora_fim?.substring(0,5) || '18:00'}</strong>
-            </p>
+            <p className="text-xs text-slate-500 mt-1">Solicite o seu agendamento online</p>
           </div>
 
           {publicSuccess ? (
@@ -683,55 +758,10 @@ export default function App() {
             })}
           </div>
         </main>
-
-        {/* MODAL CADASTRAR PROFISSIONAL */}
-        {showAddProModal && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4">
-              <div className="flex justify-between items-center border-b pb-3">
-                <h3 className="font-bold text-slate-900 text-lg">Novo Profissional & Licença</h3>
-                <button onClick={() => setShowAddProModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
-              </div>
-
-              {proModalError && <div className="p-3 bg-rose-50 text-rose-700 text-xs rounded-lg border border-rose-200">{proModalError}</div>}
-              {proModalSuccess && <div className="p-3 bg-emerald-50 text-emerald-700 text-xs rounded-lg border border-emerald-200">{proModalSuccess}</div>}
-
-              <form onSubmit={handleCreateProfessional} className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Nome / Salão</label>
-                    <input type="text" required value={newProName} onChange={e => setNewProName(e.target.value)} placeholder="Ex: Salão Beleza" className="w-full border rounded-lg p-2.5 text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">E-mail de Acesso</label>
-                    <input type="email" required value={newProEmail} onChange={e => setNewProEmail(e.target.value)} placeholder="email@exemplo.com" className="w-full border rounded-lg p-2.5 text-sm" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp</label>
-                    <input type="tel" required value={newProPhone} onChange={e => setNewProPhone(e.target.value)} placeholder="47999999999" className="w-full border rounded-lg p-2.5 text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Senha Inicial</label>
-                    <input type="password" required value={newProPassword} onChange={e => setNewProPassword(e.target.value)} placeholder="Mínimo 6 caracteres" className="w-full border rounded-lg p-2.5 text-sm" />
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-3 pt-3">
-                  <button type="button" onClick={() => setShowAddProModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
-                  <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Cadastrar Profissional</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
 
-  // GERAR LINK PÚBLICO DA PROFISSIONAL LOGADA
   const proLinkPublico = `${window.location.origin}/?pro=${userProfile?.id}`;
 
   // PAINEL DA CABELEIREIRA / PROFISSIONAL
@@ -757,7 +787,7 @@ export default function App() {
             <Users className="w-5 h-5" /> Minhas Clientes
           </button>
           <button onClick={() => setProTab('config')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'config' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <Settings className="w-5 h-5" /> Horário de Atendimento
+            <Settings className="w-5 h-5" /> Horários & Folgas
           </button>
         </nav>
 
@@ -877,7 +907,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB SERVIÇOS & PRODUTOS EXPANSÍVEL */}
+        {/* TAB SERVIÇOS & PRODUTOS */}
         {proTab === 'servicos' && (
           <div>
             <div className="flex justify-between items-center mb-6">
@@ -993,55 +1023,137 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB HORÁRIO DE ATENDIMENTO */}
+        {/* TAB HORÁRIOS DA SEMANA & FOLGAS / FERIADOS */}
         {proTab === 'config' && (
-          <div>
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-slate-900">Horário de Atendimento</h2>
-              <p className="text-sm text-slate-500 mt-1">Defina o expediente para impedir agendamentos fora de horário.</p>
+          <div className="space-y-8">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-900">Horários de Atendimento & Dias Off</h2>
+              <p className="text-sm text-slate-500 mt-1">Configure o expediente semanal e adicione datas específicas de folga ou feriado.</p>
             </div>
 
-            <div className="bg-white rounded-xl border p-6 shadow-sm max-w-lg space-y-4">
-              {configSuccess && (
-                <div className="p-3 bg-emerald-50 text-emerald-700 text-xs rounded-lg border border-emerald-200">
-                  {configSuccess}
-                </div>
-              )}
+            {configSuccess && (
+              <div className="p-3 bg-emerald-50 text-emerald-700 text-xs rounded-lg border border-emerald-200">
+                {configSuccess}
+              </div>
+            )}
 
-              <form onSubmit={salvarHorarioAtendimento} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Horário de Abertura</label>
-                    <input 
-                      type="time" 
-                      required 
-                      value={horaInicio} 
-                      onChange={e => setHoraInicio(e.target.value)} 
-                      className="w-full border rounded-lg p-3 text-sm" 
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Horário de Fechamento</label>
-                    <input 
-                      type="time" 
-                      required 
-                      value={horaFim} 
-                      onChange={e => setHoraFim(e.target.value)} 
-                      className="w-full border rounded-lg p-3 text-sm" 
-                    />
-                  </div>
-                </div>
+            {/* SEÇÃO 1: GRADE SEMANAL */}
+            <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
+              <h3 className="font-bold text-slate-900 text-base border-b pb-3 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-indigo-600" /> Grade Semanal de Atendimento
+              </h3>
 
-                <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg shadow transition">
-                  Salvar Horário de Expediente
+              <form onSubmit={salvarHorarioSemana} className="space-y-3">
+                {weeklySchedule.map((item, idx) => (
+                  <div key={item.dia_semana} className="p-3 border rounded-xl bg-slate-50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 w-44">
+                      <input 
+                        type="checkbox" 
+                        id={`dia-${item.dia_semana}`}
+                        checked={item.ativo} 
+                        onChange={e => handleWeeklyScheduleChange(idx, 'ativo', e.target.checked)}
+                        className="w-4 h-4 text-indigo-600 rounded cursor-pointer"
+                      />
+                      <label htmlFor={`dia-${item.dia_semana}`} className="font-bold text-sm text-slate-800 cursor-pointer">
+                        {item.nome}
+                      </label>
+                    </div>
+
+                    {item.ativo ? (
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="text-slate-500">Das</span>
+                        <input 
+                          type="time" 
+                          value={item.hora_inicio} 
+                          onChange={e => handleWeeklyScheduleChange(idx, 'hora_inicio', e.target.value)}
+                          className="border rounded-lg p-2 text-xs text-slate-800"
+                        />
+                        <span className="text-slate-500">às</span>
+                        <input 
+                          type="time" 
+                          value={item.hora_fim} 
+                          onChange={e => handleWeeklyScheduleChange(idx, 'hora_fim', e.target.value)}
+                          className="border rounded-lg p-2 text-xs text-slate-800"
+                        />
+                      </div>
+                    ) : (
+                      <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-rose-100 text-rose-700">
+                        Dia Fechado (Sem Atendimento)
+                      </span>
+                    )}
+                  </div>
+                ))}
+
+                <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-2.5 rounded-lg text-sm shadow transition">
+                  Salvar Grade Semanal
                 </button>
               </form>
+            </div>
+
+            {/* SEÇÃO 2: FOLGAS E FERIADOS ESPECÍFICOS */}
+            <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
+              <h3 className="font-bold text-slate-900 text-base border-b pb-3 flex items-center gap-2">
+                <CalendarOff className="w-5 h-5 text-rose-600" /> Folgas e Feriados Específicos (Dia Off)
+              </h3>
+
+              <form onSubmit={handleAddOffDay} className="flex flex-col sm:flex-row gap-3 items-end">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Data Específica</label>
+                  <input 
+                    type="date" 
+                    required 
+                    value={newOffDate} 
+                    onChange={e => setNewOffDate(e.target.value)} 
+                    className="border rounded-lg p-2.5 text-sm"
+                  />
+                </div>
+
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Motivo (Opcional)</label>
+                  <input 
+                    type="text" 
+                    value={newOffMotivo} 
+                    onChange={e => setNewOffMotivo(e.target.value)} 
+                    placeholder="Ex: Feriado de Natal, Folga Médica, Aniversário" 
+                    className="w-full border rounded-lg p-2.5 text-sm"
+                  />
+                </div>
+
+                <button type="submit" className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-5 py-2.5 rounded-lg text-sm shadow transition flex items-center gap-1.5">
+                  <Plus className="w-4 h-4" /> Cadastrar Folga
+                </button>
+              </form>
+
+              <div className="space-y-2 mt-4 pt-4 border-t">
+                {offDays.length === 0 ? (
+                  <p className="text-slate-500 text-xs">Nenhuma folga ou feriado específico cadastrado.</p>
+                ) : (
+                  offDays.map(o => (
+                    <div key={o.id} className="p-3 border rounded-xl bg-rose-50/50 flex justify-between items-center text-xs">
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold text-rose-800 text-sm">
+                          {o.data.split('-').reverse().join('/')}
+                        </span>
+                        <span className="text-slate-600 font-medium">— {o.motivo}</span>
+                      </div>
+
+                      <button 
+                        onClick={() => handleDeleteOffDay(o.id)}
+                        className="p-1.5 text-rose-600 hover:bg-rose-100 rounded-lg transition"
+                        title="Remover Folga"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         )}
       </main>
 
-      {/* MODAL CADASTRAR / EDITAR SERVIÇO COM DESCRIÇÃO E DURAÇÃO */}
+      {/* MODAIS CADASTRAR/EDITAR SERVIÇO, CLIENTE E AGENDAMENTO MANUAL MANTIDOS */}
       {showServiceModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
@@ -1116,7 +1228,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL CADASTRAR CLIENTE */}
       {showAddClientModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
@@ -1163,7 +1274,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL AGENDAMENTO MANUAL */}
       {showAddApptModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4">
