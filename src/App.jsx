@@ -406,20 +406,20 @@ export default function App() {
     }
   };
 
-  // Submissão do Agendamento Público com Validação do Horário de Atendimento
+  // Submissão do Agendamento Público com Correção de Erros
   const handlePublicBookingSubmit = async (e) => {
     e.preventDefault();
     try {
       const hInicio = publicProProfile?.hora_inicio || '08:00';
       const hFim = publicProProfile?.hora_fim || '18:00';
 
-      // Validação do Horário de Atendimento
+      // 1. Validar Horário de Atendimento
       if (bookingTime < hInicio || bookingTime > hFim) {
         alert(`O salão atende somente entre ${hInicio.substring(0,5)} e ${hFim.substring(0,5)}. Por favor, escolha outro horário dentro do expediente.`);
         return;
       }
 
-      // Validar se o horário já está ocupado por agendamento APROVADO
+      // 2. Validar se o horário já foi APROVADO
       const { data: busy } = await supabase.from('agendamentos')
         .select('*')
         .eq('profissional_id', publicProId)
@@ -428,26 +428,30 @@ export default function App() {
         .eq('status', 'confirmado');
 
       if (busy && busy.length > 0) {
-        alert('Este horário já foi aprovado e reservado para outra cliente. Por favor, escolha outro horário.');
+        alert('Este horário já foi reservado para outra cliente. Por favor, escolha outro horário.');
         return;
       }
 
-      let { data: cli } = await supabase.from('clientes')
+      // 3. Cadastrar ou localizar cliente
+      let { data: cli, error: cliFindErr } = await supabase.from('clientes')
         .select('*')
         .eq('telefone', clientPhone)
         .eq('profissional_id', publicProId)
         .maybeSingle();
 
       if (!cli) {
-        const { data: newCli } = await supabase.from('clientes').insert([{ 
+        const { data: newCli, error: cliInsertErr } = await supabase.from('clientes').insert([{ 
           nome: clientName, 
           telefone: clientPhone, 
           profissional_id: publicProId 
         }]).select().single();
+
+        if (cliInsertErr) throw cliInsertErr;
         cli = newCli;
       }
 
-      await supabase.from('agendamentos').insert([{ 
+      // 4. Inserir Agendamento com status Pendente
+      const { error: apptInsertErr } = await supabase.from('agendamentos').insert([{ 
         cliente_id: cli.id, 
         profissional_id: publicProId, 
         servico_id: selectedService, 
@@ -457,9 +461,12 @@ export default function App() {
         status: 'pendente' 
       }]);
 
+      if (apptInsertErr) throw apptInsertErr;
+
       setPublicSuccess(true);
     } catch (e) {
-      alert('Erro ao solicitar agendamento. Tente novamente.');
+      console.error(e);
+      alert('Erro ao solicitar agendamento: ' + (e.message || 'Verifique as permissões.'));
     }
   };
 
@@ -874,7 +881,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB SERVIÇOS & PRODUTOS EXPANSÍVEL (ACCORDION) */}
+        {/* TAB SERVIÇOS & PRODUTOS EXPANSÍVEL */}
         {proTab === 'servicos' && (
           <div>
             <div className="flex justify-between items-center mb-6">
