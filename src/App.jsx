@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
+import { createClient } from '@supabase/supabase-js';
 import { 
   Calendar, 
   Users, 
@@ -7,26 +8,29 @@ import {
   Plus, 
   CheckCircle2, 
   XCircle, 
-  AlertCircle, 
   Phone, 
   Mail, 
   DollarSign,
   UserPlus,
   LogOut,
   Shield,
-  UserCheck,
-  UserX,
   CreditCard,
   Clock,
-  ExternalLink,
   Copy,
-  CalendarCheck,
   MessageSquare,
   AlertTriangle,
   Edit,
-  RefreshCw,
-  Trash2
+  RefreshCw
 } from 'lucide-react';
+
+// Instância secundária para criar usuários sem deslogar o Master
+const SUPABASE_URL = 'https://ujdaesnmqhkzefqdwygk.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_PWOqJOgpsoJQT3FNDxB-Tw_5jURYgth';
+const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    persistSession: false // Não substitui o login Master atual
+  }
+});
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -38,7 +42,7 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // Rota Pública
+  // Rota Pública (?pro=UUID)
   const queryParams = new URLSearchParams(window.location.search);
   const publicProId = queryParams.get('pro');
 
@@ -59,13 +63,13 @@ export default function App() {
   const [proModalError, setProModalError] = useState('');
   const [proModalSuccess, setProModalSuccess] = useState('');
 
-  // Estados do Painel da Cabeleireira / Profissional
+  // Estados do Profissional (Cabeleireira)
   const [proTab, setProTab] = useState('agenda');
   const [proClients, setProClients] = useState([]);
   const [proServices, setProServices] = useState([]);
   const [proAppointments, setProAppointments] = useState([]);
 
-  // Modais do Profissional
+  // Modal Serviço
   const [showAddServiceModal, setShowAddServiceModal] = useState(false);
   const [serviceName, setServiceName] = useState('');
   const [servicePrice, setServicePrice] = useState('');
@@ -80,7 +84,7 @@ export default function App() {
   const [bookingTime, setBookingTime] = useState('');
   const [publicSuccess, setPublicSuccess] = useState(false);
 
-  // Verificar Sessão
+  // Verificar Sessão Inicial
   useEffect(() => {
     if (publicProId) {
       loadPublicPageData(publicProId);
@@ -142,7 +146,6 @@ export default function App() {
       setProfessionals(profs || []);
       setLicencas(lics || []);
     } else if (userProfile) {
-      // Carregar dados da cabeleireira logada
       const { data: cli } = await supabase.from('clientes').select('*').eq('profissional_id', userProfile.id);
       const { data: srv } = await supabase.from('servicos').select('*').eq('profissional_id', userProfile.id);
       const { data: appt } = await supabase.from('agendamentos').select('*, clientes(nome, telefone), servicos(nome, preco)').eq('profissional_id', userProfile.id);
@@ -153,43 +156,15 @@ export default function App() {
     }
   };
 
-  const getDiasRestantes = (dataVencimento) => {
-    if (!dataVencimento) return 0;
-    const hoje = new Date();
-    hoje.setHours(0, 0, 0, 0);
-    const venc = new Date(dataVencimento);
-    venc.setHours(0, 0, 0, 0);
-    const diffTime = venc - hoje;
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  };
-
-  // Login & Logout
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setLoginError('');
-    setLoading(true);
-
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      setLoginError('E-mail ou senha incorretos.');
-      setLoading(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setSession(null);
-    setUserProfile(null);
-  };
-
-  // Cadastrar Novo Profissional (Master)
+  // Cadastrar Novo Profissional Sem Deslogar o Master
   const handleCreateProfessional = async (e) => {
     e.preventDefault();
     setProModalError('');
     setProModalSuccess('');
 
     try {
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      // Usando supabaseAdmin para NÃO sobrescrever a sessão Master
+      const { data: authData, error: authError } = await supabaseAdmin.auth.signUp({
         email: newProEmail,
         password: newProPassword,
         options: { data: { nome: newProName } }
@@ -198,7 +173,7 @@ export default function App() {
       if (authError) throw authError;
 
       if (authData?.user) {
-        // Criar perfil
+        // Criar perfil na tabela
         await supabase.from('perfis').insert([{
           id: authData.user.id,
           nome: newProName,
@@ -208,7 +183,7 @@ export default function App() {
           status: 'active'
         }]);
 
-        // Registrar Licença
+        // Criar licença inicial
         const dataVenc = new Date();
         dataVenc.setDate(dataVenc.getDate() + parseInt(diasAcesso));
 
@@ -228,30 +203,30 @@ export default function App() {
         setNewProPhone('');
         setNewProPassword('');
         
-        // Recarregar a lista do Master
         await loadAppData();
         setTimeout(() => setShowAddProModal(false), 1200);
       }
     } catch (err) {
-      setProModalError(err.message || 'Erro ao cadastrar.');
+      setProModalError(err.message || 'Erro ao cadastrar profissional.');
     }
   };
 
-  // Cadastrar Serviço (Cabeleireira)
-  const handleAddService = async (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    const { error } = await supabase.from('servicos').insert([{
-      nome: serviceName,
-      preco: parseFloat(servicePrice),
-      profissional_id: userProfile.id
-    }]);
+    setLoginError('');
+    setLoading(true);
 
-    if (!error) {
-      setServiceName('');
-      setServicePrice('');
-      setShowAddServiceModal(false);
-      loadAppData();
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      setLoginError('E-mail ou senha incorretos.');
+      setLoading(false);
     }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+    setUserProfile(null);
   };
 
   if (loading) {
@@ -362,9 +337,7 @@ export default function App() {
     );
   }
 
-  // ==========================================
   // PAINEL MASTER
-  // ==========================================
   if (userProfile.role === 'master') {
     return (
       <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row font-sans">
@@ -403,9 +376,7 @@ export default function App() {
 
           <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4">
             {professionals.map(p => {
-              const licencaPro = licencas.find(l => l.profissional_id === p.id);
               const linkPublico = `${window.location.origin}/?pro=${p.id}`;
-
               return (
                 <div key={p.id} className="p-4 border rounded-xl bg-slate-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                   <div className="space-y-1">
@@ -480,9 +451,7 @@ export default function App() {
     );
   }
 
-  // ==========================================
   // PAINEL DA CABELEIREIRA / PROFISSIONAL
-  // ==========================================
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row font-sans">
       <aside className="w-full md:w-64 bg-slate-900 text-slate-100 flex flex-col border-r border-slate-800">
@@ -571,29 +540,6 @@ export default function App() {
           </div>
         )}
       </main>
-
-      {/* MODAL ADICIONAR SERVIÇO */}
-      {showAddServiceModal && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4">
-            <h3 className="font-bold text-slate-900 text-lg">Novo Serviço</h3>
-            <form onSubmit={handleAddService} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Nome do Serviço</label>
-                <input type="text" required value={serviceName} onChange={e => setServiceName(e.target.value)} placeholder="Ex: Corte Feminino" className="w-full border rounded-lg p-2.5 text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Preço (R$)</label>
-                <input type="number" step="0.01" required value={servicePrice} onChange={e => setServicePrice(e.target.value)} placeholder="50.00" className="w-full border rounded-lg p-2.5 text-sm" />
-              </div>
-              <div className="flex justify-end gap-3 pt-2">
-                <button type="button" onClick={() => setShowAddServiceModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
-                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-lg">Salvar Serviço</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
