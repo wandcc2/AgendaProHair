@@ -24,7 +24,8 @@ import {
   CalendarPlus,
   Trash2,
   ExternalLink,
-  Share2
+  Share2,
+  UserCheck
 } from 'lucide-react';
 
 const SUPABASE_URL = 'https://ujdaesnmqhkzefqdwygk.supabase.co';
@@ -70,11 +71,18 @@ export default function App() {
   const [proServices, setProServices] = useState([]);
   const [proAppointments, setProAppointments] = useState([]);
 
-  // Modal Serviço / Produto
-  const [showAddServiceModal, setShowAddServiceModal] = useState(false);
+  // Modal Criar/Editar Serviço
+  const [showServiceModal, setShowServiceModal] = useState(false);
+  const [editingServiceId, setEditingServiceId] = useState(null);
   const [serviceName, setServiceName] = useState('');
   const [servicePrice, setServicePrice] = useState('');
   const [serviceError, setServiceError] = useState('');
+
+  // Modal Novo Cliente (Aba Clientes)
+  const [showAddClientModal, setShowAddClientModal] = useState(false);
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientPhone, setNewClientPhone] = useState('');
+  const [clientError, setClientError] = useState('');
 
   // Modal Agendamento Manual
   const [showAddApptModal, setShowAddApptModal] = useState(false);
@@ -167,7 +175,7 @@ export default function App() {
     }
   };
 
-  // Enviar Link de Agendamento via WhatsApp para Cliente
+  // Enviar Link via WhatsApp
   const enviarLinkAgendamentoWhats = (nomeCliente, telefoneCliente) => {
     const numLimpo = (telefoneCliente || '').replace(/\D/g, '');
     if (!numLimpo) {
@@ -176,43 +184,92 @@ export default function App() {
     }
 
     const linkPublico = `${window.location.origin}/?pro=${userProfile?.id}`;
-    const msg = `Olá, ${nomeCliente}! %0A%0A Agora você pode agendar seus horários no salão *${userProfile?.nome}* diretamente pelo nosso site de agendamento online! %0A%0A Acesse o link abaixo para escolher o melhor dia e horário:%0A${linkPublico}%0A%0ATe esperamos! 😊`;
+    const msg = `Olá, ${nomeCliente}! %0A%0AAgora você pode agendar seus horários no salão *${userProfile?.nome}* diretamente pelo nosso site de agendamento online! %0A%0AAcesse o link abaixo para escolher o melhor dia e horário:%0A${linkPublico}%0A%0ATe esperamos! 😊`;
 
     window.open(`https://wa.me/55${numLimpo}?text=${msg}`, '_blank');
   };
 
-  // Cadastrar Novo Serviço / Produto (Profissional)
-  const handleAddService = async (e) => {
+  // Abrir Modal de Novo Serviço
+  const handleOpenAddServiceModal = () => {
+    setEditingServiceId(null);
+    setServiceName('');
+    setServicePrice('');
+    setServiceError('');
+    setShowServiceModal(true);
+  };
+
+  // Abrir Modal de Edição de Serviço
+  const handleOpenEditServiceModal = (srv) => {
+    setEditingServiceId(srv.id);
+    setServiceName(srv.nome);
+    setServicePrice(srv.preco);
+    setServiceError('');
+    setShowServiceModal(true);
+  };
+
+  // Salvar (Criar ou Atualizar) Serviço / Produto
+  const handleSaveService = async (e) => {
     e.preventDefault();
     setServiceError('');
 
-    if (!userProfile?.id) {
-      setServiceError('Sessão inválida. Por favor, recarregue a página.');
-      return;
+    try {
+      if (editingServiceId) {
+        // Atualizar
+        const { error } = await supabase.from('servicos').update({
+          nome: serviceName,
+          preco: parseFloat(servicePrice)
+        }).eq('id', editingServiceId);
+
+        if (error) throw error;
+      } else {
+        // Criar
+        const { error } = await supabase.from('servicos').insert([{
+          nome: serviceName,
+          preco: parseFloat(servicePrice),
+          profissional_id: userProfile.id
+        }]);
+
+        if (error) throw error;
+      }
+
+      setShowServiceModal(false);
+      setServiceName('');
+      setServicePrice('');
+      setEditingServiceId(null);
+      await loadAppData();
+    } catch (err) {
+      setServiceError(err.message || 'Erro ao salvar serviço.');
     }
+  };
+
+  // Excluir Serviço
+  const handleDeleteService = async (serviceId) => {
+    if (window.confirm('Deseja realmente remover este serviço/produto?')) {
+      await supabase.from('servicos').delete().eq('id', serviceId);
+      loadAppData();
+    }
+  };
+
+  // Cadastrar Cliente Manualmente
+  const handleAddClient = async (e) => {
+    e.preventDefault();
+    setClientError('');
 
     try {
-      const { error } = await supabase.from('servicos').insert([{
-        nome: serviceName,
-        preco: parseFloat(servicePrice),
+      const { error } = await supabase.from('clientes').insert([{
+        nome: newClientName,
+        telefone: newClientPhone,
         profissional_id: userProfile.id
       }]);
 
       if (error) throw error;
 
-      setServiceName('');
-      setServicePrice('');
-      setShowAddServiceModal(false);
+      setShowAddClientModal(false);
+      setNewClientName('');
+      setNewClientPhone('');
       await loadAppData();
     } catch (err) {
-      setServiceError(err.message || 'Erro ao cadastrar serviço.');
-    }
-  };
-
-  const handleDeleteService = async (serviceId) => {
-    if (window.confirm('Deseja realmente remover este serviço/produto?')) {
-      await supabase.from('servicos').delete().eq('id', serviceId);
-      loadAppData();
+      setClientError(err.message || 'Erro ao cadastrar cliente.');
     }
   };
 
@@ -687,10 +744,10 @@ export default function App() {
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-2xl font-bold text-slate-900">Serviços & Produtos</h2>
-                <p className="text-sm text-slate-500 mt-1">Cadastre os preços e serviços oferecidos no seu salão.</p>
+                <p className="text-sm text-slate-500 mt-1">Cadastre, edite ou remova serviços oferecidos no seu salão.</p>
               </div>
               <button 
-                onClick={() => setShowAddServiceModal(true)} 
+                onClick={handleOpenAddServiceModal} 
                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 shadow"
               >
                 <Plus className="w-4 h-4" /> Cadastrar Novo Serviço/Produto
@@ -704,8 +761,17 @@ export default function App() {
                 proServices.map(s => (
                   <div key={s.id} className="p-4 border rounded-xl flex justify-between items-center bg-slate-50">
                     <span className="font-bold text-slate-900 text-base">{s.nome}</span>
-                    <div className="flex items-center gap-4">
-                      <span className="font-bold text-emerald-700 text-base">R$ {parseFloat(s.preco).toFixed(2)}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="font-bold text-emerald-700 text-base mr-2">R$ {parseFloat(s.preco).toFixed(2)}</span>
+                      
+                      <button 
+                        onClick={() => handleOpenEditServiceModal(s)}
+                        className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+                        title="Editar Serviço"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+
                       <button 
                         onClick={() => handleDeleteService(s.id)}
                         className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition"
@@ -724,9 +790,17 @@ export default function App() {
         {/* TAB MINHAS CLIENTES */}
         {proTab === 'clientes' && (
           <div>
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-slate-900">Minhas Clientes</h2>
-              <p className="text-sm text-slate-500 mt-1">Lista de clientes e envio do link de agendamento por WhatsApp.</p>
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900">Minhas Clientes</h2>
+                <p className="text-sm text-slate-500 mt-1">Cadastre clientes e envie o link de agendamento por WhatsApp.</p>
+              </div>
+              <button 
+                onClick={() => setShowAddClientModal(true)}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 shadow"
+              >
+                <UserPlus className="w-4 h-4" /> Cadastrar Nova Cliente
+              </button>
             </div>
 
             <div className="bg-white rounded-xl border p-6 shadow-sm space-y-3">
@@ -754,18 +828,20 @@ export default function App() {
         )}
       </main>
 
-      {/* MODAL ADICIONAR SERVIÇO / PRODUTO */}
-      {showAddServiceModal && (
+      {/* MODAL CADASTRAR / EDITAR SERVIÇO */}
+      {showServiceModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
             <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="font-bold text-slate-900 text-lg">Novo Serviço / Produto</h3>
-              <button onClick={() => setShowAddServiceModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
+              <h3 className="font-bold text-slate-900 text-lg">
+                {editingServiceId ? 'Editar Serviço / Produto' : 'Novo Serviço / Produto'}
+              </h3>
+              <button onClick={() => setShowServiceModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
             </div>
 
             {serviceError && <div className="p-3 bg-rose-50 text-rose-700 text-xs rounded-lg border border-rose-200">{serviceError}</div>}
 
-            <form onSubmit={handleAddService} className="space-y-4">
+            <form onSubmit={handleSaveService} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Nome do Serviço ou Produto</label>
                 <input 
@@ -792,8 +868,57 @@ export default function App() {
               </div>
 
               <div className="flex justify-end gap-3 pt-2 border-t">
-                <button type="button" onClick={() => setShowAddServiceModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
-                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Salvar Serviço</button>
+                <button type="button" onClick={() => setShowServiceModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">
+                  {editingServiceId ? 'Salvar Alterações' : 'Cadastrar Serviço'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CADASTRAR CLIENTE (DIRETO NA ABA CLIENTES) */}
+      {showAddClientModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-bold text-slate-900 text-lg">Cadastrar Nova Cliente</h3>
+              <button onClick={() => setShowAddClientModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
+            </div>
+
+            {clientError && <div className="p-3 bg-rose-50 text-rose-700 text-xs rounded-lg border border-rose-200">{clientError}</div>}
+
+            <form onSubmit={handleAddClient} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nome Completo</label>
+                <input 
+                  type="text" 
+                  required 
+                  value={newClientName} 
+                  onChange={e => setNewClientName(e.target.value)} 
+                  placeholder="Ex: Mariana Silva" 
+                  className="w-full border rounded-lg p-2.5 text-sm" 
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp / Telefone</label>
+                <input 
+                  type="tel" 
+                  required 
+                  value={newClientPhone} 
+                  onChange={e => setNewClientPhone(e.target.value)} 
+                  placeholder="(47) 99999-9999" 
+                  className="w-full border rounded-lg p-2.5 text-sm" 
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2 border-t">
+                <button type="button" onClick={() => setShowAddClientModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">
+                  Salvar Cliente
+                </button>
               </div>
             </form>
           </div>
