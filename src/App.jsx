@@ -79,7 +79,7 @@ export default function App() {
   const publicProId = queryParams.get('pro');
 
   // Master State
-  const [activeTab, setActiveTab] = useState('master_profs'); // master_profs | master_vencimentos | master_financeiro
+  const [activeTab, setActiveTab] = useState('master_profs'); // master_profs | master_financeiro
   const [professionals, setProfessionals] = useState([]);
   const [licencas, setLicencas] = useState([]);
   const [expandedProId, setExpandedProId] = useState(null);
@@ -113,7 +113,7 @@ export default function App() {
   const [editFormaPagto, setEditFormaPagto] = useState('Pix');
 
   // Profissional / Salão
-  const [proTab, setProTab] = useState('dashboard_agenda'); // dashboard_agenda | agenda | aprovacao | servicos | clientes | config
+  const [proTab, setProTab] = useState('dashboard_agenda');
   const [proClients, setProClients] = useState([]);
   const [proServices, setProServices] = useState([]);
   const [proAppointments, setProAppointments] = useState([]);
@@ -152,7 +152,6 @@ export default function App() {
   const [servicePrice, setServicePrice] = useState('');
   const [serviceDesc, setServiceDesc] = useState('');
   const [serviceDuration, setServiceDuration] = useState('30');
-  const [serviceError, setServiceError] = useState('');
 
   // Modal Novo Cliente (Com campos estendidos)
   const [showAddClientModal, setShowAddClientModal] = useState(false);
@@ -281,7 +280,6 @@ export default function App() {
     }
   };
 
-  // Submissão Pública Sem Erros
   const handlePublicBookingSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -338,7 +336,6 @@ export default function App() {
         return;
       }
 
-      // Inserir ou localizar cliente enviando "nome" exclusivamente
       let clientId = null;
       const { data: existingCli } = await supabase.from('clientes')
         .select('id')
@@ -378,18 +375,6 @@ export default function App() {
     }
   };
 
-  // Funções Master
-  const toggleAgendamentoLink = async (proId, currentStatus) => {
-    const { error } = await supabase.from('perfis').update({ agendamento_link_ativo: !currentStatus }).eq('id', proId);
-    if (!error) loadAppData();
-  };
-
-  const toggleStatusProfissional = async (proId, currentStatus) => {
-    const newStatus = currentStatus === 'blocked' ? 'active' : 'blocked';
-    const { error } = await supabase.from('perfis').update({ status: newStatus }).eq('id', proId);
-    if (!error) loadAppData();
-  };
-
   const handleOpenEditPro = (pro) => {
     setEditingPro(pro);
     setEditTipoLicenca('manter');
@@ -400,6 +385,7 @@ export default function App() {
     setShowEditProModal(true);
   };
 
+  // Correção robusta para salvar edição do salão e licença sem erros de colunas nulas
   const handleSaveEditedPro = async (e) => {
     e.preventDefault();
     try {
@@ -425,11 +411,11 @@ export default function App() {
           dataVenc = hoje.toISOString().split('T')[0];
           planoNome = `${editDiasAcesso} Dias`;
         } else if (editTipoLicenca === 'data') {
-          dataVenc = editDataEspecifica;
-          planoNome = `Até ${editDataEspecifica.split('-').reverse().join('/')}`;
+          dataVenc = editDataEspecifica || null;
+          planoNome = editDataEspecifica ? `Até ${editDataEspecifica.split('-').reverse().join('/')}` : 'Personalizado';
         }
 
-        const { error: licErr } = await supabase.from('licencas').insert([{
+        const payloadLic = {
           profissional_id: editingPro.id,
           plano: planoNome,
           valor: parseFloat(editValorLicenca || 0),
@@ -437,8 +423,9 @@ export default function App() {
           data_pagamento: new Date().toISOString().split('T')[0],
           data_vencimento: dataVenc,
           status: 'active'
-        }]);
+        };
 
+        const { error: licErr } = await supabase.from('licencas').insert([payloadLic]);
         if (licErr) throw licErr;
       }
 
@@ -488,8 +475,8 @@ export default function App() {
           dataVenc = dt.toISOString().split('T')[0];
           planoNome = `${diasAcesso} Dias`;
         } else if (tipoLicencaNovo === 'data') {
-          dataVenc = dataEspecificaVenc;
-          planoNome = `Até ${dataEspecificaVenc.split('-').reverse().join('/')}`;
+          dataVenc = dataEspecificaVenc || null;
+          planoNome = dataEspecificaVenc ? `Até ${dataEspecificaVenc.split('-').reverse().join('/')}` : 'Personalizado';
         }
 
         await supabase.from('licencas').insert([{
@@ -511,7 +498,6 @@ export default function App() {
     }
   };
 
-  // Salvar Grade Semanal com Almoço
   const salvarHorarioSemana = async (e) => {
     e.preventDefault();
     setConfigSuccess('');
@@ -641,24 +627,6 @@ export default function App() {
     }
   };
 
-  const handleAddOffDay = async (e) => {
-    e.preventDefault();
-    if (!newOffDate) return;
-    await supabase.from('folgas_feriados').insert([{
-      profissional_id: userProfile.id,
-      data: newOffDate,
-      motivo: newOffMotivo || 'Folga / Feriado'
-    }]);
-    setNewOffDate('');
-    setNewOffMotivo('');
-    loadAppData();
-  };
-
-  const handleDeleteOffDay = async (id) => {
-    await supabase.from('folgas_feriados').delete().eq('id', id);
-    loadAppData();
-  };
-
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setSession(null);
@@ -673,7 +641,6 @@ export default function App() {
     );
   }
 
-  // PÁGINA PÚBLICA DE AGENDAMENTO
   if (publicProId) {
     const linkDesativado = publicProProfile?.agendamento_link_ativo === false;
     const corTema = publicProProfile?.cor_primaria || '#4f46e5';
@@ -765,7 +732,6 @@ export default function App() {
     );
   }
 
-  // TELA DE LOGIN
   if (!session || !userProfile) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
@@ -804,7 +770,6 @@ export default function App() {
     );
   }
 
-  // PAINEL MASTER
   if (userProfile.role === 'master') {
     const totalVendasLicencas = licencas.reduce((acc, l) => acc + (parseFloat(l.valor) || 0), 0);
 
@@ -907,7 +872,7 @@ export default function App() {
 
                 <div className="bg-white p-6 rounded-xl border shadow-sm flex items-center justify-between">
                   <div>
-                    <span className="text-xs text-slate-500 font-bold uppercase block">Total de Vendas / Contratos</span>
+                    <span className="text-xs text-slate-500 font-bold uppercase block">Total de Contratos</span>
                     <span className="text-2xl font-extrabold text-indigo-600">{licencas.length}</span>
                   </div>
                   <div className="p-3 bg-indigo-100 text-indigo-700 rounded-xl"><CreditCard className="w-6 h-6" /></div>
@@ -956,7 +921,6 @@ export default function App() {
           )}
         </main>
 
-        {/* MODAL CADASTRAR NOVO SALÃO */}
         {showAddProModal && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4 max-h-[90vh] overflow-y-auto">
@@ -1046,7 +1010,6 @@ export default function App() {
           </div>
         )}
 
-        {/* MODAL EDITAR SALÃO */}
         {showEditProModal && editingPro && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4 max-h-[90vh] overflow-y-auto">
@@ -1107,17 +1070,14 @@ export default function App() {
     );
   }
 
-  // COR DO SALÃO
   const corSalão = userProfile?.cor_primaria || '#4f46e5';
 
-  // GERAR DIAS DA SEMANA PARA O DASHBOARD DE AGENDA
   const diasDaSemana = Array.from({ length: 7 }).map((_, idx) => {
     const d = new Date(currentWeekStart);
     d.setDate(d.getDate() + idx);
     return d;
   });
 
-  // PAINEL DO SALÃO / PROFISSIONAL
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row font-sans">
       <aside className="w-full md:w-64 bg-slate-900 text-slate-100 flex flex-col border-r border-slate-800">
@@ -1166,7 +1126,6 @@ export default function App() {
       </aside>
 
       <main className="flex-1 p-8 overflow-y-auto">
-        {/* TOP BANNER / LOGO SALÃO */}
         <div style={{ backgroundColor: corSalão }} className="text-white p-6 rounded-2xl shadow-lg mb-8 flex justify-between items-center">
           <div className="flex items-center gap-4">
             {userProfile?.logo_url && (
@@ -1182,7 +1141,6 @@ export default function App() {
           </button>
         </div>
 
-        {/* MENU DASHBOARD DA AGENDA (VISUALIZAÇÃO SEMANAL IGUAL À IMAGEM) */}
         {proTab === 'dashboard_agenda' && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl border shadow-sm">
@@ -1209,7 +1167,6 @@ export default function App() {
               </span>
             </div>
 
-            {/* GRADE DA AGENDA SEMANAL */}
             <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
               {diasDaSemana.map((diaObj, idx) => {
                 const dataIso = diaObj.toISOString().split('T')[0];
@@ -1243,7 +1200,6 @@ export default function App() {
           </div>
         )}
 
-        {/* MENU SOLICITAÇÕES VIA LINK */}
         {proTab === 'aprovacao' && (
           <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
             <h3 className="font-bold text-slate-900 text-lg">Aprovação de Agendamentos Efetivados pelo Link</h3>
@@ -1266,7 +1222,6 @@ export default function App() {
           </div>
         )}
 
-        {/* MENU CLIENTES COM CAMPOS AMPLIADOS */}
         {proTab === 'clientes' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -1292,7 +1247,6 @@ export default function App() {
           </div>
         )}
 
-        {/* MENU HORÁRIOS DA SEMANA E ALMOÇO */}
         {proTab === 'config' && (
           <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
             <h3 className="font-bold text-slate-900 text-lg border-b pb-3">Ajuste de Horários de Atendimento & Almoço</h3>
@@ -1369,7 +1323,6 @@ export default function App() {
           </div>
         )}
 
-        {/* DEMAIS MENUS (SERVIÇOS) */}
         {proTab === 'servicos' && (
           <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
             <div className="flex justify-between items-center">
@@ -1388,7 +1341,6 @@ export default function App() {
         )}
       </main>
 
-      {/* MODAL CADASTRAR CLIENTE COMPLETO */}
       {showAddClientModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
@@ -1428,7 +1380,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL SERVIÇO */}
       {showServiceModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
@@ -1445,7 +1396,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL AGENDAMENTO MANUAL */}
       {showAddApptModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
