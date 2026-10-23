@@ -42,10 +42,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Palette,
-  Image as ImageIcon,
   TrendingUp,
-  PieChart,
-  UserCheck
+  Sliders
 } from 'lucide-react';
 
 const SUPABASE_URL = 'https://ujdaesnmqhkzefqdwygk.supabase.co';
@@ -79,7 +77,7 @@ export default function App() {
   const publicProId = queryParams.get('pro');
 
   // Master State
-  const [activeTab, setActiveTab] = useState('master_profs'); // master_profs | master_financeiro
+  const [activeTab, setActiveTab] = useState('master_profs'); 
   const [professionals, setProfessionals] = useState([]);
   const [licencas, setLicencas] = useState([]);
   const [expandedProId, setExpandedProId] = useState(null);
@@ -95,7 +93,7 @@ export default function App() {
   const [newProLogo, setNewProLogo] = useState('');
   const [newProCor, setNewProCor] = useState('#4f46e5');
   const [newProLinkAtivo, setNewProLinkAtivo] = useState(true);
-  const [tipoLicencaNovo, setTipoLicencaNovo] = useState('dias'); // 'dias' | 'data' | 'vitalicio'
+  const [tipoLicencaNovo, setTipoLicencaNovo] = useState('dias'); 
   const [diasAcesso, setDiasAcesso] = useState(30);
   const [dataEspecificaVenc, setDataEspecificaVenc] = useState('');
   const [planoValor, setPlanoValor] = useState('50.00');
@@ -113,11 +111,15 @@ export default function App() {
   const [editFormaPagto, setEditFormaPagto] = useState('Pix');
 
   // Profissional / Salão
-  const [proTab, setProTab] = useState('dashboard_agenda');
+  const [proTab, setProTab] = useState('agenda'); // agenda | clientes | servicos | horarios | faturamento | ajustes | whatsapp
   const [proClients, setProClients] = useState([]);
   const [proServices, setProServices] = useState([]);
   const [proAppointments, setProAppointments] = useState([]);
-  const [expandedServiceId, setExpandedServiceId] = useState(null);
+
+  // Modal Ajuste de Cores do Salão
+  const [showColorModal, setShowColorModal] = useState(false);
+  const [customTopoCor, setCustomTopoCor] = useState('#4f46e5');
+  const [customSidebarCor, setCustomSidebarCor] = useState('#0f172a');
 
   // Dashboard Semanal
   const [currentWeekStart, setCurrentWeekStart] = useState(() => {
@@ -153,21 +155,17 @@ export default function App() {
   const [serviceDesc, setServiceDesc] = useState('');
   const [serviceDuration, setServiceDuration] = useState('30');
 
-  // Modal Novo Cliente (Com campos estendidos)
+  // Modal Novo Cliente
   const [showAddClientModal, setShowAddClientModal] = useState(false);
   const [newClientName, setNewClientName] = useState('');
   const [newClientPhone, setNewClientPhone] = useState('');
   const [newClientEndereco, setNewClientEndereco] = useState('');
   const [newClientPrefPro, setNewClientPrefPro] = useState('');
   const [newClientObs, setNewClientObs] = useState('');
-  const [clientError, setClientError] = useState('');
 
   // Modal Agendamento Manual
   const [showAddApptModal, setShowAddApptModal] = useState(false);
-  const [apptClientType, setApptClientType] = useState('existing');
   const [selectedClientId, setSelectedClientId] = useState('');
-  const [manualClientName, setManualClientName] = useState('');
-  const [manualClientPhone, setManualClientPhone] = useState('');
   const [manualServiceId, setManualServiceId] = useState('');
   const [manualDate, setManualDate] = useState('');
   const [manualTime, setManualTime] = useState('');
@@ -231,6 +229,8 @@ export default function App() {
       const { data, error } = await supabase.from('perfis').select('*').eq('id', userId).single();
       if (error) throw error;
       setUserProfile(data);
+      setCustomTopoCor(data.cor_topo || data.cor_primaria || '#4f46e5');
+      setCustomSidebarCor(data.cor_sidebar || '#0f172a');
     } catch (error) {
       console.error('Erro ao buscar perfil:', error);
     } finally {
@@ -280,6 +280,24 @@ export default function App() {
     }
   };
 
+  const handleSaveColors = async () => {
+    try {
+      const { error } = await supabase.from('perfis').update({
+        cor_topo: customTopoCor,
+        cor_sidebar: customSidebarCor,
+        cor_primaria: customTopoCor
+      }).eq('id', userProfile.id);
+
+      if (error) throw error;
+
+      setUserProfile({ ...userProfile, cor_topo: customTopoCor, cor_sidebar: customSidebarCor, cor_primaria: customTopoCor });
+      setShowColorModal(false);
+      alert('Cores personalizadas salvas com sucesso!');
+    } catch (e) {
+      alert('Erro ao salvar cores: ' + e.message);
+    }
+  };
+
   const handlePublicBookingSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -324,18 +342,6 @@ export default function App() {
         }
       }
 
-      const { data: busy } = await supabase.from('agendamentos')
-        .select('*')
-        .eq('profissional_id', publicProId)
-        .eq('data', bookingDate)
-        .eq('horario', bookingTime)
-        .eq('status', 'confirmado');
-
-      if (busy && busy.length > 0) {
-        alert('Este horário já foi reservado. Por favor, escolha outro horário.');
-        return;
-      }
-
       let clientId = null;
       const { data: existingCli } = await supabase.from('clientes')
         .select('id')
@@ -376,16 +382,16 @@ export default function App() {
   };
 
   const handleOpenEditPro = (pro) => {
+    const lic = licencas.find(l => l.profissional_id === pro.id);
     setEditingPro(pro);
     setEditTipoLicenca('manter');
     setEditDiasAcesso(30);
     setEditDataEspecifica('');
-    setEditValorLicenca('50.00');
-    setEditFormaPagto('Pix');
+    setEditValorLicenca(lic?.valor || '50.00');
+    setEditFormaPagto(lic?.forma_pagamento || 'Pix');
     setShowEditProModal(true);
   };
 
-  // Correção robusta para salvar edição do salão e licença sem erros de colunas nulas
   const handleSaveEditedPro = async (e) => {
     e.preventDefault();
     try {
@@ -527,7 +533,6 @@ export default function App() {
 
   const handleAddClientExt = async (e) => {
     e.preventDefault();
-    setClientError('');
 
     try {
       const { error } = await supabase.from('clientes').insert([{
@@ -549,28 +554,15 @@ export default function App() {
       setNewClientObs('');
       await loadAppData();
     } catch (err) {
-      setClientError(err.message || 'Erro ao cadastrar cliente.');
+      alert(err.message);
     }
   };
 
   const handleAddManualAppointment = async (e) => {
     e.preventDefault();
     try {
-      let finalClientId = selectedClientId;
-
-      if (apptClientType === 'new') {
-        const { data: newCli, error: cliErr } = await supabase.from('clientes').insert([{
-          nome: manualClientName,
-          telefone: manualClientPhone,
-          profissional_id: userProfile.id
-        }]).select().single();
-
-        if (cliErr) throw cliErr;
-        finalClientId = newCli.id;
-      }
-
       const { error: apptErr } = await supabase.from('agendamentos').insert([{
-        cliente_id: finalClientId,
+        cliente_id: selectedClientId,
         profissional_id: userProfile.id,
         servico_id: manualServiceId,
         data: manualDate,
@@ -590,41 +582,6 @@ export default function App() {
   const handleUpdateApptStatus = async (apptId, newStatus) => {
     const { error } = await supabase.from('agendamentos').update({ status: newStatus }).eq('id', apptId);
     if (!error) loadAppData();
-  };
-
-  const handleOpenAddServiceModal = () => {
-    setEditingServiceId(null);
-    setServiceName('');
-    setServicePrice('');
-    setServiceDesc('');
-    setServiceDuration('30');
-    setShowServiceModal(true);
-  };
-
-  const handleSaveService = async (e) => {
-    e.preventDefault();
-    try {
-      if (editingServiceId) {
-        await supabase.from('servicos').update({
-          nome: serviceName,
-          preco: parseFloat(servicePrice),
-          descricao: serviceDesc,
-          duracao_minutos: parseInt(serviceDuration)
-        }).eq('id', editingServiceId);
-      } else {
-        await supabase.from('servicos').insert([{
-          nome: serviceName,
-          preco: parseFloat(servicePrice),
-          descricao: serviceDesc,
-          duracao_minutos: parseInt(serviceDuration),
-          profissional_id: userProfile.id
-        }]);
-      }
-      setShowServiceModal(false);
-      loadAppData();
-    } catch (err) {
-      alert(err.message);
-    }
   };
 
   const handleLogout = async () => {
@@ -921,100 +878,11 @@ export default function App() {
           )}
         </main>
 
-        {showAddProModal && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4 max-h-[90vh] overflow-y-auto">
-              <div className="flex justify-between items-center border-b pb-3">
-                <h3 className="font-bold text-slate-900 text-lg">Novo Salão com Personalização & Licença</h3>
-                <button onClick={() => setShowAddProModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
-              </div>
-
-              {proModalError && <div className="p-3 bg-rose-50 text-rose-700 text-xs rounded-lg border border-rose-200">{proModalError}</div>}
-              {proModalSuccess && <div className="p-3 bg-emerald-50 text-emerald-700 text-xs rounded-lg border border-emerald-200">{proModalSuccess}</div>}
-
-              <form onSubmit={handleCreateProfessional} className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Nome do Salão</label>
-                    <input type="text" required value={newProName} onChange={e => setNewProName(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">E-mail</label>
-                    <input type="email" required value={newProEmail} onChange={e => setNewProEmail(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp</label>
-                    <input type="tel" required value={newProPhone} onChange={e => setNewProPhone(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Senha</label>
-                    <input type="password" required value={newProPassword} onChange={e => setNewProPassword(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
-                  </div>
-                </div>
-
-                <div className="border-t pt-3 space-y-3">
-                  <h4 className="font-bold text-slate-900 text-xs text-indigo-600 flex items-center gap-1"><Palette className="w-4 h-4" /> Personalização Visual</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">URL da Foto / Logo</label>
-                      <input type="text" value={newProLogo} onChange={e => setNewProLogo(e.target.value)} placeholder="https://..." className="w-full border rounded-lg p-2 text-sm" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Cor Principal</label>
-                      <input type="color" value={newProCor} onChange={e => setNewProCor(e.target.value)} className="w-full h-9 border rounded-lg p-1 cursor-pointer" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="border-t pt-3 space-y-3">
-                  <h4 className="font-bold text-slate-900 text-xs text-indigo-600 flex items-center gap-1"><CreditCard className="w-4 h-4" /> Licença & Período de Uso</h4>
-                  <select value={tipoLicencaNovo} onChange={e => setTipoLicencaNovo(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm font-medium">
-                    <option value="dias">Quantidade de Dias (Ex: 30 dias)</option>
-                    <option value="data">Data Específica de Expiração</option>
-                    <option value="vitalicio">Acesso Vitalício</option>
-                  </select>
-
-                  {tipoLicencaNovo === 'dias' && (
-                    <input type="number" required value={diasAcesso} onChange={e => setDiasAcesso(e.target.value)} placeholder="30" className="w-full border rounded-lg p-2.5 text-sm" />
-                  )}
-
-                  {tipoLicencaNovo === 'data' && (
-                    <input type="date" required value={dataEspecificaVenc} onChange={e => setDataEspecificaVenc(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
-                  )}
-
-                  <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Valor Pago (R$)</label>
-                      <input type="number" step="0.01" value={planoValor} onChange={e => setPlanoValor(e.target.value)} className="w-full border rounded-lg p-2 text-sm" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Pagamento</label>
-                      <select value={formaPagamento} onChange={e => setFormaPagamento(e.target.value)} className="w-full border rounded-lg p-2 text-sm">
-                        <option value="Pix">Pix</option>
-                        <option value="Cartão de Crédito">Cartão de Crédito</option>
-                        <option value="Dinheiro">Dinheiro</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-3 pt-3 border-t">
-                  <button type="button" onClick={() => setShowAddProModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
-                  <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Cadastrar Salão</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
         {showEditProModal && editingPro && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4 max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-center border-b pb-3">
-                <h3 className="font-bold text-slate-900 text-lg">Editar Salão & Personalização</h3>
+                <h3 className="font-bold text-slate-900 text-lg">Editar Salão & Licença</h3>
                 <button onClick={() => setShowEditProModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
               </div>
 
@@ -1041,7 +909,7 @@ export default function App() {
                 </div>
 
                 <div className="border-t pt-3 space-y-3">
-                  <h4 className="font-bold text-slate-900 text-xs text-indigo-600">Alterar Período da Licença</h4>
+                  <h4 className="font-bold text-slate-900 text-xs text-indigo-600">Alterar Período da Licença & Valores</h4>
                   <select value={editTipoLicenca} onChange={e => setEditTipoLicenca(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm font-medium">
                     <option value="manter">Manter Licença Atual</option>
                     <option value="dias">Adicionar Dias de Uso</option>
@@ -1050,12 +918,27 @@ export default function App() {
                   </select>
 
                   {editTipoLicenca === 'dias' && (
-                    <input type="number" value={editDiasAcesso} onChange={e => setEditDiasAcesso(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+                    <input type="number" value={editDiasAcesso} onChange={e => setEditDiasAcesso(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" placeholder="Dias" />
                   )}
 
                   {editTipoLicenca === 'data' && (
                     <input type="date" value={editDataEspecifica} onChange={e => setEditDataEspecifica(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
                   )}
+
+                  <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Valor Pago em Licenças (R$)</label>
+                      <input type="number" step="0.01" value={editValorLicenca} onChange={e => setEditValorLicenca(e.target.value)} className="w-full border rounded-lg p-2 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Forma de Pagamento</label>
+                      <select value={editFormaPagto} onChange={e => setEditFormaPagto(e.target.value)} className="w-full border rounded-lg p-2 text-sm">
+                        <option value="Pix">Pix</option>
+                        <option value="Cartão de Crédito">Cartão de Crédito</option>
+                        <option value="Dinheiro">Dinheiro</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex justify-end gap-3 pt-3 border-t">
@@ -1070,7 +953,9 @@ export default function App() {
     );
   }
 
-  const corSalão = userProfile?.cor_primaria || '#4f46e5';
+  // ATRIBUIÇÃO DAS CORES DO SALÃO
+  const corTopo = userProfile?.cor_topo || userProfile?.cor_primaria || '#4f46e5';
+  const corSidebar = userProfile?.cor_sidebar || '#0f172a';
 
   const diasDaSemana = Array.from({ length: 7 }).map((_, idx) => {
     const d = new Date(currentWeekStart);
@@ -1078,70 +963,132 @@ export default function App() {
     return d;
   });
 
+  const totalFaturamentoSalão = proAppointments
+    .filter(a => a.status === 'confirmado')
+    .reduce((acc, a) => acc + (parseFloat(a.servicos?.preco) || 0), 0);
+
+  // PAINEL DO SALÃO (MENU CONFORME A IMAGEM ANEXADA)
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row font-sans">
-      <aside className="w-full md:w-64 bg-slate-900 text-slate-100 flex flex-col border-r border-slate-800">
-        <div className="p-6 border-b border-slate-800 flex items-center gap-3">
+      {/* SIDEBAR LATERAL COM COR CONFIGURÁVEL */}
+      <aside style={{ backgroundColor: corSidebar }} className="w-full md:w-64 text-slate-100 flex flex-col border-r border-slate-800/50 shadow-xl">
+        <div className="p-6 border-b border-slate-800/40 flex items-center gap-3">
           {userProfile?.logo_url ? (
             <img src={userProfile.logo_url} alt="Logo Salão" className="w-12 h-12 rounded-xl object-cover border border-slate-700 shadow" />
           ) : (
-            <div style={{ backgroundColor: corSalão }} className="p-2.5 rounded-xl text-white shadow">
+            <div style={{ backgroundColor: corTopo }} className="p-2.5 rounded-xl text-white shadow">
               <Scissors className="w-6 h-6" />
             </div>
           )}
           <div>
             <h1 className="font-bold text-base leading-tight truncate max-w-[130px]">{userProfile?.nome}</h1>
-            <p className="text-xs text-slate-400">Painel do Salão</p>
+            <p className="text-xs text-slate-400">Painel de Gestão</p>
           </div>
         </div>
 
-        <nav className="flex-1 p-4 space-y-1">
-          <button onClick={() => setProTab('dashboard_agenda')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'dashboard_agenda' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <Calendar className="w-5 h-5" /> Dashboard Agenda
+        {/* ESTRUTURA DOS MENUS IDENTICA À IMAGEM ANEXADA */}
+        <nav className="flex-1 p-4 space-y-1.5">
+          <button 
+            onClick={() => setProTab('agenda')} 
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${
+              proTab === 'agenda' ? 'bg-indigo-600/90 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800/60'
+            }`}
+          >
+            <Calendar className="w-5 h-5 text-pink-400" /> Agenda
           </button>
-          <button onClick={() => setProTab('aprovacao')} className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'aprovacao' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <div className="flex items-center gap-3"><Inbox className="w-5 h-5" /> Solicitações</div>
-            {proAppointments.filter(a => a.status === 'pendente').length > 0 && (
-              <span className="bg-amber-500 text-slate-900 font-bold text-xs px-2 py-0.5 rounded-full">
-                {proAppointments.filter(a => a.status === 'pendente').length}
-              </span>
-            )}
+
+          <button 
+            onClick={() => setProTab('clientes')} 
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${
+              proTab === 'clientes' ? 'bg-indigo-600/90 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800/60'
+            }`}
+          >
+            <Users className="w-5 h-5 text-indigo-300" /> Clientes
           </button>
-          <button onClick={() => setProTab('servicos')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'servicos' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <Scissors className="w-5 h-5" /> Serviços & Produtos
+
+          <button 
+            onClick={() => setProTab('servicos')} 
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${
+              proTab === 'servicos' ? 'bg-indigo-600/90 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800/60'
+            }`}
+          >
+            <Scissors className="w-5 h-5 text-purple-300" /> Serviços
           </button>
-          <button onClick={() => setProTab('clientes')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'clientes' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <Users className="w-5 h-5" /> Clientes
+
+          <button 
+            onClick={() => setProTab('horarios')} 
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${
+              proTab === 'horarios' ? 'bg-indigo-600/90 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800/60'
+            }`}
+          >
+            <Clock className="w-5 h-5 text-cyan-300" /> Horários
           </button>
-          <button onClick={() => setProTab('config')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'config' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <Settings className="w-5 h-5" /> Horários & Folgas
+
+          <button 
+            onClick={() => setProTab('faturamento')} 
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${
+              proTab === 'faturamento' ? 'bg-indigo-600/90 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800/60'
+            }`}
+          >
+            <DollarSign className="w-5 h-5 text-emerald-400" /> Faturamento
+          </button>
+
+          <button 
+            onClick={() => setProTab('ajustes')} 
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${
+              proTab === 'ajustes' ? 'bg-indigo-600/90 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800/60'
+            }`}
+          >
+            <Settings className="w-5 h-5 text-slate-400" /> Ajustes
+          </button>
+
+          <button 
+            onClick={() => setProTab('whatsapp')} 
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${
+              proTab === 'whatsapp' ? 'bg-indigo-600/90 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800/60'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4 text-emerald-400" /> WhatsApp
           </button>
         </nav>
 
-        <div className="p-4 border-t border-slate-800">
-          <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-rose-900/50 text-slate-300 hover:text-rose-200 py-2.5 rounded-lg text-sm transition">
+        {/* BOTÃO DE PERSONALIZAR CORES (POSICIONADO LOGO ACIMA DO BOTÃO SAIR) */}
+        <div className="p-4 border-t border-slate-800/60 space-y-2">
+          <button 
+            onClick={() => setShowColorModal(true)} 
+            className="w-full flex items-center justify-center gap-2 bg-slate-800/80 hover:bg-slate-700 text-slate-200 py-2.5 rounded-lg text-xs font-semibold transition border border-slate-700"
+          >
+            <Palette className="w-4 h-4 text-amber-400" /> Personalizar Cores
+          </button>
+
+          <button 
+            onClick={handleLogout} 
+            className="w-full flex items-center justify-center gap-2 bg-slate-800/80 hover:bg-rose-900/50 text-slate-300 hover:text-rose-200 py-2.5 rounded-lg text-xs font-semibold transition border border-slate-700"
+          >
             <LogOut className="w-4 h-4" /> Sair
           </button>
         </div>
       </aside>
 
       <main className="flex-1 p-8 overflow-y-auto">
-        <div style={{ backgroundColor: corSalão }} className="text-white p-6 rounded-2xl shadow-lg mb-8 flex justify-between items-center">
+        {/* TOPO DO SALÃO COM COR CONFIGURÁVEL */}
+        <div style={{ backgroundColor: corTopo }} className="text-white p-6 rounded-2xl shadow-lg mb-8 flex justify-between items-center transition-all">
           <div className="flex items-center gap-4">
             {userProfile?.logo_url && (
               <img src={userProfile.logo_url} alt="Logo" className="w-16 h-16 rounded-xl object-cover border-2 border-white/40 shadow-md" />
             )}
             <div>
               <h2 className="text-2xl font-bold">{userProfile?.nome}</h2>
-              <p className="text-xs text-white/80">Bem-vinda(o) ao seu painel de agendamentos!</p>
+              <p className="text-xs text-white/80">Painel Administrativo do Salão</p>
             </div>
           </div>
-          <button onClick={() => setShowAddApptModal(true)} className="bg-white text-slate-900 font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow">
+          <button onClick={() => setShowAddApptModal(true)} className="bg-white text-slate-900 font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow hover:bg-slate-100 transition">
             <CalendarPlus className="w-4 h-4 text-indigo-600" /> Novo Agendamento
           </button>
         </div>
 
-        {proTab === 'dashboard_agenda' && (
+        {/* MENU 1: AGENDA (VISUALIZAÇÃO SEMANAL) */}
+        {proTab === 'agenda' && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl border shadow-sm">
               <div className="flex items-center gap-3">
@@ -1200,32 +1147,11 @@ export default function App() {
           </div>
         )}
 
-        {proTab === 'aprovacao' && (
-          <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
-            <h3 className="font-bold text-slate-900 text-lg">Aprovação de Agendamentos Efetivados pelo Link</h3>
-            {proAppointments.filter(a => a.status === 'pendente').length === 0 ? (
-              <p className="text-slate-500 text-sm">Nenhuma solicitação pendente no momento.</p>
-            ) : (
-              proAppointments.filter(a => a.status === 'pendente').map(a => (
-                <div key={a.id} className="p-4 border-2 border-amber-200 bg-amber-50/40 rounded-xl flex justify-between items-center">
-                  <div>
-                    <h4 className="font-bold text-slate-900">{a.clientes?.nome} ({a.clientes?.telefone})</h4>
-                    <p className="text-xs text-slate-600">{a.servicos?.nome} — {a.data?.split('-').reverse().join('/')} às {a.horario}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => handleUpdateApptStatus(a.id, 'confirmado')} className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow">Aprovar</button>
-                    <button onClick={() => handleUpdateApptStatus(a.id, 'cancelado')} className="bg-rose-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow">Recusar</button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-
+        {/* MENU 2: CLIENTES */}
         {proTab === 'clientes' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
-              <h3 className="font-bold text-slate-900 text-xl">Cadastro Completo de Clientes</h3>
+              <h3 className="font-bold text-slate-900 text-xl">Clientes Cadastradas</h3>
               <button onClick={() => setShowAddClientModal(true)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-xs shadow flex items-center gap-1.5">
                 <UserPlus className="w-4 h-4" /> Cadastrar Cliente
               </button>
@@ -1238,8 +1164,6 @@ export default function App() {
                     <h4 className="font-bold text-slate-900 text-sm">{c.nome}</h4>
                     <p className="text-slate-600">WhatsApp: {c.telefone || 'N/I'}</p>
                     {c.endereco && <p className="text-slate-500">Endereço: {c.endereco}</p>}
-                    {c.preferencia_profissional && <p className="text-indigo-600 font-semibold">Pref. Profissional: {c.preferencia_profissional}</p>}
-                    {c.observacoes && <p className="text-slate-500 italic mt-1">Obs: {c.observacoes}</p>}
                   </div>
                 </div>
               ))}
@@ -1247,9 +1171,28 @@ export default function App() {
           </div>
         )}
 
-        {proTab === 'config' && (
+        {/* MENU 3: SERVIÇOS */}
+        {proTab === 'servicos' && (
           <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
-            <h3 className="font-bold text-slate-900 text-lg border-b pb-3">Ajuste de Horários de Atendimento & Almoço</h3>
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold text-slate-900 text-lg">Serviços e Produtos</h3>
+              <button onClick={() => setShowServiceModal(true)} className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-bold">+ Novo Serviço</button>
+            </div>
+            {proServices.map(s => (
+              <div key={s.id} className="p-3 border rounded-lg flex justify-between items-center text-xs">
+                <div>
+                  <span className="font-bold text-slate-900">{s.nome}</span>
+                  <p className="text-slate-500">R$ {parseFloat(s.preco).toFixed(2)} — {s.duracao_minutos || 30} min</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* MENU 4: HORÁRIOS */}
+        {proTab === 'horarios' && (
+          <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
+            <h3 className="font-bold text-slate-900 text-lg border-b pb-3">Ajuste de Horários & Pausa para Almoço</h3>
             
             {configSuccess && <div className="p-3 bg-emerald-50 text-emerald-700 text-xs rounded-lg border">{configSuccess}</div>}
 
@@ -1273,7 +1216,7 @@ export default function App() {
                           updated[idx].com_almoco = e.target.checked;
                           setWeeklySchedule(updated);
                         }} className="rounded text-indigo-600" />
-                        Habilitar Pausa para Almoço
+                        Pausa para Almoço
                       </label>
                     )}
                   </div>
@@ -1317,35 +1260,84 @@ export default function App() {
               ))}
 
               <button type="submit" className="bg-indigo-600 text-white font-bold px-6 py-2.5 rounded-lg text-sm shadow">
-                Salvar Horários de Atendimento
+                Salvar Horários
               </button>
             </form>
           </div>
         )}
 
-        {proTab === 'servicos' && (
-          <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="font-bold text-slate-900 text-lg">Serviços e Produtos</h3>
-              <button onClick={handleOpenAddServiceModal} className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-bold">+ Novo Serviço</button>
-            </div>
-            {proServices.map(s => (
-              <div key={s.id} className="p-3 border rounded-lg flex justify-between items-center text-xs">
-                <div>
-                  <span className="font-bold text-slate-900">{s.nome}</span>
-                  <p className="text-slate-500">R$ {parseFloat(s.preco).toFixed(2)} — {s.duracao_minutos || 30} min</p>
-                </div>
+        {/* MENU 5: FATURAMENTO */}
+        {proTab === 'faturamento' && (
+          <div className="space-y-6">
+            <h3 className="font-bold text-slate-900 text-xl">Faturamento dos Atendimentos</h3>
+            <div className="bg-white p-6 rounded-2xl border shadow-sm flex items-center justify-between">
+              <div>
+                <span className="text-xs text-slate-500 font-bold uppercase block">Faturamento Realizado</span>
+                <span className="text-3xl font-extrabold text-emerald-600">R$ {totalFaturamentoSalão.toFixed(2)}</span>
               </div>
-            ))}
+              <div className="p-4 bg-emerald-100 text-emerald-700 rounded-2xl"><DollarSign className="w-8 h-8" /></div>
+            </div>
+          </div>
+        )}
+
+        {/* MENU 6: AJUSTES */}
+        {proTab === 'ajustes' && (
+          <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
+            <h3 className="font-bold text-slate-900 text-lg border-b pb-3">Ajustes do Salão e Link de Agendamento</h3>
+            <div>
+              <span className="text-xs font-bold text-slate-600 block mb-1">Seu Link de Agendamento Online:</span>
+              <div className="flex items-center gap-2">
+                <input type="text" readOnly value={`${window.location.origin}/?pro=${userProfile?.id}`} className="w-full border rounded-lg p-2.5 text-xs bg-slate-50 font-mono" />
+                <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/?pro=${userProfile?.id}`); alert('Link copiado!'); }} className="bg-indigo-600 text-white px-4 py-2.5 rounded-lg text-xs font-bold">Copiar</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MENU 7: WHATSAPP */}
+        {proTab === 'whatsapp' && (
+          <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
+            <h3 className="font-bold text-slate-900 text-lg border-b pb-3">WhatsApp & Notificações</h3>
+            <p className="text-sm text-slate-600">Disparo automático de mensagens para confirmação e avisos de presença.</p>
           </div>
         )}
       </main>
 
+      {/* MODAL PERSONALIZAR CORES */}
+      {showColorModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-bold text-slate-900 text-lg">Personalizar Cores do Salão</h3>
+              <button onClick={() => setShowColorModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Cor do Topo / Destaques</label>
+                <input type="color" value={customTopoCor} onChange={e => setCustomTopoCor(e.target.value)} className="w-full h-10 border rounded-lg p-1 cursor-pointer" />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Cor do Menu Lateral (Sidebar)</label>
+                <input type="color" value={customSidebarCor} onChange={e => setCustomSidebarCor(e.target.value)} className="w-full h-10 border rounded-lg p-1 cursor-pointer" />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-3 border-t">
+              <button type="button" onClick={() => setShowColorModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+              <button type="button" onClick={handleSaveColors} className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Salvar Cores</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CADASTRAR CLIENTE COMPLETO */}
       {showAddClientModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
             <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="font-bold text-slate-900 text-lg">Nova Cliente (Completo)</h3>
+              <h3 className="font-bold text-slate-900 text-lg">Nova Cliente</h3>
               <button onClick={() => setShowAddClientModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
             </div>
 
@@ -1362,14 +1354,6 @@ export default function App() {
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Endereço Residencial (Opcional)</label>
                 <input type="text" value={newClientEndereco} onChange={e => setNewClientEndereco(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Preferência por Profissional (Opcional)</label>
-                <input type="text" value={newClientPrefPro} onChange={e => setNewClientPrefPro(e.target.value)} placeholder="Ex: Cabeleireira Maria" className="w-full border rounded-lg p-2.5 text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Observações (Opcional)</label>
-                <textarea rows="2" value={newClientObs} onChange={e => setNewClientObs(e.target.value)} placeholder="Alergias, preferências..." className="w-full border rounded-lg p-2.5 text-sm"></textarea>
-              </div>
 
               <div className="flex justify-end gap-3 pt-2 border-t">
                 <button type="button" onClick={() => setShowAddClientModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
@@ -1380,6 +1364,7 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL SERVIÇO */}
       {showServiceModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
@@ -1387,7 +1372,16 @@ export default function App() {
               <h3 className="font-bold text-slate-900 text-lg">Novo Serviço</h3>
               <button onClick={() => setShowServiceModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
             </div>
-            <form onSubmit={handleSaveService} className="space-y-3">
+            <form onSubmit={e => {
+              e.preventDefault();
+              supabase.from('servicos').insert([{
+                nome: serviceName,
+                preco: parseFloat(servicePrice),
+                descricao: serviceDesc,
+                duracao_minutos: parseInt(serviceDuration),
+                profissional_id: userProfile.id
+              }]).then(() => { setShowServiceModal(false); loadAppData(); });
+            }} className="space-y-3">
               <input type="text" required placeholder="Nome do Serviço" value={serviceName} onChange={e => setServiceName(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
               <input type="number" step="0.01" required placeholder="Preço (R$)" value={servicePrice} onChange={e => setServicePrice(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
               <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold text-xs">Salvar</button>
@@ -1396,6 +1390,7 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL AGENDAMENTO MANUAL */}
       {showAddApptModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
