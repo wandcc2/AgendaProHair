@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { 
-  Shield, Users, TrendingUp, LogOut, UserPlus, DollarSign, CreditCard, XCircle, Palette, AlertTriangle 
+  Shield, Users, TrendingUp, LogOut, UserPlus, DollarSign, CreditCard, XCircle, Palette, AlertTriangle, Trash2 
 } from 'lucide-react';
 import { supabase, supabaseAdmin } from '../services/supabaseClient';
 
@@ -57,6 +57,28 @@ export default function MasterDashboard({ userProfile, professionals, licencas, 
     setEditValorLicenca(lic?.valor || '50.00');
     setEditFormaPagto(lic?.forma_pagamento || 'Pix');
     setShowEditProModal(true);
+  };
+
+  const handleDeleteProfessional = async (proId, proNome) => {
+    if (window.confirm(`Tem a certeza que deseja excluir o salão "${proNome}"? Esta ação removerá o salão, todas as licenças e dados associados permanentemente.`)) {
+      try {
+        // Excluir do perfil (as chaves estrangeiras com cascade tratam de limpar agendamentos, clientes, serviços, licenças, etc.)
+        const { error } = await supabase.from('perfis').delete().eq('id', proId);
+        if (error) throw error;
+
+        // Tentar excluir do auth se o admin estiver disponível
+        try {
+          await supabaseAdmin.auth.admin.deleteUser(proId);
+        } catch (authErr) {
+          console.warn('Utilizador Auth já removido ou sem permissão de admin direta:', authErr);
+        }
+
+        alert('Salão excluído com sucesso!');
+        await loadAppData();
+      } catch (err) {
+        alert('Erro ao excluir salão: ' + err.message);
+      }
+    }
   };
 
   const handleSaveEditedPro = async (e) => {
@@ -242,12 +264,15 @@ export default function MasterDashboard({ userProfile, professionals, licencas, 
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 flex-wrap">
                         <span className="text-xs font-bold text-slate-300 bg-slate-800 border border-slate-700 px-3 py-1 rounded-full">
                           Vencimento: {dataVencStr ? dataVencStr.split('-').reverse().join('/') : 'Vitalício'}
                         </span>
                         <button onClick={() => handleOpenEditPro(p)} className="px-3 py-1.5 bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 font-bold rounded-lg text-xs border border-indigo-500/30">
                           Editar / Licença
+                        </button>
+                        <button onClick={() => handleDeleteProfessional(p.id, p.nome)} className="px-3 py-1.5 bg-rose-600/20 text-rose-400 hover:bg-rose-600/30 font-bold rounded-lg text-xs border border-rose-500/30 flex items-center gap-1">
+                          <Trash2 className="w-3.5 h-3.5" /> Excluir
                         </button>
                       </div>
                     </div>
@@ -278,9 +303,18 @@ export default function MasterDashboard({ userProfile, professionals, licencas, 
                         <h4 className="font-bold text-white text-sm">{pro?.nome || 'Salão'}</h4>
                         <p className="text-xs text-slate-400">Plano: {l.plano} • Vencimento: <strong className="text-amber-400">{dataVencStr?.split('-').reverse().join('/')}</strong></p>
                       </div>
-                      <button onClick={() => pro && handleOpenEditPro(pro)} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-slate-950 font-bold rounded-lg text-xs">
-                        Renovar Licença
-                      </button>
+                      <div className="flex gap-2">
+                        {pro && (
+                          <button onClick={() => handleOpenEditPro(pro)} className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-slate-950 font-bold rounded-lg text-xs">
+                            Renovar Licença
+                          </button>
+                        )}
+                        {pro && (
+                          <button onClick={() => handleDeleteProfessional(pro.id, pro.nome)} className="px-3 py-1.5 bg-rose-600/20 text-rose-400 hover:bg-rose-600/30 font-bold rounded-lg text-xs border border-rose-500/30">
+                            Excluir
+                          </button>
+                        )}
+                      </div>
                     </div>
                   );
                 })
