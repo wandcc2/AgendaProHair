@@ -5,7 +5,7 @@ import {
 import { supabase, supabaseAdmin } from '../services/supabaseClient';
 
 export default function MasterDashboard({ userProfile, professionals, licencas, loadAppData, onLogout }) {
-  const [activeTab, setActiveTab] = useState('master_profs'); // master_profs | master_financeiro | master_vencimentos
+  const [activeTab, setActiveTab] = useState('master_profs');
   const [expandedProId, setExpandedProId] = useState(null);
 
   // Modal Novo Salão
@@ -38,11 +38,11 @@ export default function MasterDashboard({ userProfile, professionals, licencas, 
 
   const totalVendasLicencas = licencas.reduce((acc, l) => acc + (parseFloat(l.valor) || 0), 0);
 
-  // Filtrar licenças próximas de vencer (nos próximos 7 dias ou vencidas)
+  // Filtrar licenças próximas de vencer (nos próximos 7 dias ou já vencidas)
   const hoje = new Date();
   const licencasProximas = licencas.filter(l => {
     const dataVencStr = l.data_vencimento || l.vencimento;
-    if (!dataVencStr) return false; // Vitalício
+    if (!dataVencStr) return false;
     const venc = new Date(dataVencStr);
     const diffDias = Math.ceil((venc - hoje) / (1000 * 60 * 60 * 24));
     return diffDias <= 7;
