@@ -64,7 +64,7 @@ export default function SalaoDashboard({
     return d;
   });
 
-  // Cálculos Financeiros
+  // Cálculos Financeiros (DRE)
   const faturamentoBruto = proAppointments
     .filter(a => a.status === 'confirmado')
     .reduce((acc, a) => acc + (parseFloat(a.servicos?.preco) || 0), 0);
