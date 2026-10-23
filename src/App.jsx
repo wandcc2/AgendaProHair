@@ -30,7 +30,14 @@ import {
   Check,
   X,
   Settings,
-  CalendarOff
+  CalendarOff,
+  BellRing,
+  MapPin,
+  Lock,
+  Unlock,
+  ToggleLeft,
+  ToggleRight,
+  Inbox
 } from 'lucide-react';
 
 const SUPABASE_URL = 'https://ujdaesnmqhkzefqdwygk.supabase.co';
@@ -66,18 +73,27 @@ export default function App() {
   // Master
   const [activeTab, setActiveTab] = useState('master_profs');
   const [professionals, setProfessionals] = useState([]);
+  const [licencas, setLicencas] = useState([]);
+  const [expandedProId, setExpandedProId] = useState(null);
 
   // Modal Novo Profissional (Master)
   const [showAddProModal, setShowAddProModal] = useState(false);
   const [newProName, setNewProName] = useState('');
   const [newProEmail, setNewProEmail] = useState('');
   const [newProPhone, setNewProPhone] = useState('');
+  const [newProEndereco, setNewProEndereco] = useState('');
+  const [newProNumero, setNewProNumero] = useState('');
   const [newProPassword, setNewProPassword] = useState('');
+  const [newProLinkAtivo, setNewProLinkAtivo] = useState(true);
   const [planoValor, setPlanoValor] = useState('50.00');
   const [formaPagamento, setFormaPagamento] = useState('Pix');
   const [diasAcesso, setDiasAcesso] = useState(30);
   const [proModalError, setProModalError] = useState('');
   const [proModalSuccess, setProModalSuccess] = useState('');
+
+  // Modal Editar Salão (Master)
+  const [showEditProModal, setShowEditProModal] = useState(false);
+  const [editingPro, setEditingPro] = useState(null);
 
   // Profissional / Cabeleireira
   const [proTab, setProTab] = useState('agenda');
@@ -91,7 +107,7 @@ export default function App() {
     DIAS_NOME.map((nome, idx) => ({
       dia_semana: idx,
       nome,
-      ativo: idx >= 1 && idx <= 6, // Segunda a Sábado ativos por padrão
+      ativo: idx >= 1 && idx <= 6,
       hora_inicio: '08:00',
       hora_fim: '18:00'
     }))
@@ -201,13 +217,14 @@ export default function App() {
   const loadAppData = async () => {
     if (userProfile?.role === 'master') {
       const { data: profs } = await supabase.from('perfis').select('*').order('created_at', { ascending: false });
+      const { data: lics } = await supabase.from('licencas').select('*').order('created_at', { ascending: false });
       setProfessionals(profs || []);
+      setLicencas(lics || []);
     } else if (userProfile) {
       const { data: cli } = await supabase.from('clientes').select('*').eq('profissional_id', userProfile.id).order('nome', { ascending: true });
       const { data: srv } = await supabase.from('servicos').select('*').eq('profissional_id', userProfile.id).order('nome', { ascending: true });
       const { data: appt } = await supabase.from('agendamentos').select('*, clientes(nome, telefone), servicos(nome, preco)').eq('profissional_id', userProfile.id).order('data', { ascending: true });
 
-      // Carregar Horários da Semana
       const { data: hs } = await supabase.from('horarios_semana').select('*').eq('profissional_id', userProfile.id);
       if (hs && hs.length > 0) {
         setWeeklySchedule(prev => prev.map(item => {
@@ -216,7 +233,6 @@ export default function App() {
         }));
       }
 
-      // Carregar Folgas / Feriados
       const { data: off } = await supabase.from('folgas_feriados').select('*').eq('profissional_id', userProfile.id).order('data', { ascending: true });
 
       setProClients(cli || []);
@@ -226,6 +242,116 @@ export default function App() {
     }
   };
 
+  // Funções Master
+  const toggleAgendamentoLink = async (proId, currentStatus) => {
+    const { error } = await supabase.from('perfis').update({
+      agendamento_link_ativo: !currentStatus
+    }).eq('id', proId);
+
+    if (!error) loadAppData();
+    else alert('Erro ao alterar permissão de link.');
+  };
+
+  const toggleStatusProfissional = async (proId, currentStatus) => {
+    const newStatus = currentStatus === 'active' ? 'blocked' : 'active';
+    const { error } = await supabase.from('perfis').update({ status: newStatus }).eq('id', proId);
+    if (!error) loadAppData();
+    else alert('Erro ao alterar status.');
+  };
+
+  const enviarAvisoVencimentoWhats = (nome, telefone, dataVenc) => {
+    const numLimpo = (telefone || '').replace(/\D/g, '');
+    if (!numLimpo) {
+      alert('Este salão não tem WhatsApp cadastrado.');
+      return;
+    }
+    const partes = (dataVenc || '').split('-');
+    const dataFmt = partes.length === 3 ? `${partes[2]}/${partes[1]}/${partes[0]}` : dataVenc;
+    const msg = `Olá, *${nome}*! %0A%0ASua licença do sistema *AgendaPro Hair* vence no dia *${dataFmt}*. %0A%0APara evitar a interrupção do serviço e do link de agendamentos, por favor realize a renovação do seu plano. %0A%0AQualquer dúvida estamos à disposição! 😊`;
+
+    window.open(`https://wa.me/55${numLimpo}?text=${msg}`, '_blank');
+  };
+
+  const handleOpenEditPro = (pro) => {
+    setEditingPro(pro);
+    setShowEditProModal(true);
+  };
+
+  const handleSaveEditedPro = async (e) => {
+    e.preventDefault();
+    const { error } = await supabase.from('perfis').update({
+      nome: editingPro.nome,
+      telefone: editingPro.telefone,
+      endereco: editingPro.endereco,
+      numero: editingPro.numero,
+      agendamento_link_ativo: editingPro.agendamento_link_ativo
+    }).eq('id', editingPro.id);
+
+    if (!error) {
+      setShowEditProModal(false);
+      loadAppData();
+    } else {
+      alert('Erro ao atualizar salão.');
+    }
+  };
+
+  const handleCreateProfessional = async (e) => {
+    e.preventDefault();
+    setProModalError('');
+    setProModalSuccess('');
+
+    try {
+      const { data: authData, error: authError } = await supabaseAdmin.auth.signUp({
+        email: newProEmail,
+        password: newProPassword,
+        options: { data: { nome: newProName } }
+      });
+
+      if (authError) throw authError;
+
+      if (authData?.user) {
+        await supabase.from('perfis').insert([{
+          id: authData.user.id,
+          nome: newProName,
+          email: newProEmail,
+          telefone: newProPhone,
+          endereco: newProEndereco,
+          numero: newProNumero,
+          agendamento_link_ativo: newProLinkAtivo,
+          role: 'professional',
+          status: 'active'
+        }]);
+
+        const dataVenc = new Date();
+        dataVenc.setDate(dataVenc.getDate() + parseInt(diasAcesso));
+
+        await supabase.from('licencas').insert([{
+          profissional_id: authData.user.id,
+          plano: 'Mensal',
+          valor: parseFloat(planoValor),
+          forma_pagamento: formaPagamento,
+          data_pagamento: new Date().toISOString().split('T')[0],
+          data_vencimento: dataVenc.toISOString().split('T')[0],
+          status: 'active'
+        }]);
+
+        setProModalSuccess('Profissional cadastrado com sucesso!');
+        setNewProName('');
+        setNewProEmail('');
+        setNewProPhone('');
+        setNewProEndereco('');
+        setNewProNumero('');
+        setNewProPassword('');
+        
+        await loadAppData();
+        setTimeout(() => setShowAddProModal(false), 1200);
+      }
+    } catch (err) {
+      setProModalError(err.message || 'Erro ao cadastrar profissional.');
+    }
+  };
+
+  // Funções do Salão
   const handleWeeklyScheduleChange = (index, field, value) => {
     const updated = [...weeklySchedule];
     updated[index][field] = value;
@@ -380,44 +506,6 @@ export default function App() {
     }
   };
 
-  const handleCreateProfessional = async (e) => {
-    e.preventDefault();
-    setProModalError('');
-    setProModalSuccess('');
-
-    try {
-      const { data: authData, error: authError } = await supabaseAdmin.auth.signUp({
-        email: newProEmail,
-        password: newProPassword,
-        options: { data: { nome: newProName } }
-      });
-
-      if (authError) throw authError;
-
-      if (authData?.user) {
-        await supabase.from('perfis').insert([{
-          id: authData.user.id,
-          nome: newProName,
-          email: newProEmail,
-          telefone: newProPhone,
-          role: 'professional',
-          status: 'active'
-        }]);
-
-        setProModalSuccess('Profissional cadastrado com sucesso!');
-        setNewProName('');
-        setNewProEmail('');
-        setNewProPhone('');
-        setNewProPassword('');
-        
-        await loadAppData();
-        setTimeout(() => setShowAddProModal(false), 1200);
-      }
-    } catch (err) {
-      setProModalError(err.message || 'Erro ao cadastrar profissional.');
-    }
-  };
-
   const handleAddManualAppointment = async (e) => {
     e.preventDefault();
     try {
@@ -458,23 +546,25 @@ export default function App() {
     }
   };
 
-  // Submissão do Agendamento Público com Validação de Folgas/Feriados e Semana
+  // Submissão Pública
   const handlePublicBookingSubmit = async (e) => {
     e.preventDefault();
     try {
-      // 1. Validar se a data é Folga ou Feriado
+      if (publicProProfile?.agendamento_link_ativo === false) {
+        alert('O agendamento online via link está desativado para este salão.');
+        return;
+      }
+
       const folga = publicOffDays.find(o => o.data === bookingDate);
       if (folga) {
         alert(`O salão não atenderá nesta data (${bookingDate.split('-').reverse().join('/')}). Motivo: ${folga.motivo}`);
         return;
       }
 
-      // 2. Descobrir dia da semana da data selecionada (0 = Dom, 6 = Sáb)
       const dateParts = bookingDate.split('-');
       const dateObj = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
       const diaSemanaIndex = dateObj.getDay();
 
-      // Busca na grade semanal
       const regraDia = publicWeeklySchedule.find(h => h.dia_semana === diaSemanaIndex);
 
       if (regraDia) {
@@ -492,7 +582,6 @@ export default function App() {
         }
       }
 
-      // 3. Validar se o horário já está reservado
       const { data: busy } = await supabase.from('agendamentos')
         .select('*')
         .eq('profissional_id', publicProId)
@@ -505,7 +594,6 @@ export default function App() {
         return;
       }
 
-      // 4. Cadastrar / Localizar Cliente
       let { data: cli } = await supabase.from('clientes')
         .select('*')
         .eq('telefone', clientPhone)
@@ -523,7 +611,6 @@ export default function App() {
         cli = newCli;
       }
 
-      // 5. Inserir Agendamento em estado PENDENTE
       const { error: apptInsertErr } = await supabase.from('agendamentos').insert([{ 
         cliente_id: cli.id, 
         profissional_id: publicProId, 
@@ -585,6 +672,8 @@ export default function App() {
 
   // PÁGINA PÚBLICA DE AGENDAMENTO (?pro=UUID)
   if (publicProId) {
+    const linkDesativado = publicProProfile?.agendamento_link_ativo === false;
+
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-6">
@@ -593,10 +682,21 @@ export default function App() {
               <Scissors className="w-7 h-7" />
             </div>
             <h1 className="text-2xl font-bold text-slate-900">{publicProProfile?.nome || 'Agenda Online'}</h1>
-            <p className="text-xs text-slate-500 mt-1">Solicite o seu agendamento online</p>
+            {publicProProfile?.endereco && (
+              <p className="text-xs text-slate-500 mt-1 flex items-center justify-center gap-1">
+                <MapPin className="w-3.5 h-3.5 text-indigo-600" />
+                {publicProProfile.endereco}, Nº {publicProProfile.numero || 'S/N'}
+              </p>
+            )}
           </div>
 
-          {publicSuccess ? (
+          {linkDesativado ? (
+            <div className="text-center py-8 space-y-3">
+              <AlertTriangle className="w-16 h-16 text-amber-500 mx-auto" />
+              <h2 className="text-xl font-bold text-slate-900">Agendamento Online Indisponível</h2>
+              <p className="text-sm text-slate-600">No momento, o agendamento por link está temporariamente desativado para este salão. Entre em contato diretamente pelo WhatsApp.</p>
+            </div>
+          ) : publicSuccess ? (
             <div className="text-center py-8 space-y-3">
               <CheckCircle2 className="w-16 h-16 text-emerald-500 mx-auto" />
               <h2 className="text-xl font-bold text-slate-900">Solicitação Enviada!</h2>
@@ -701,13 +801,13 @@ export default function App() {
             <div className="p-2 bg-indigo-600 rounded-lg text-white"><Shield className="w-6 h-6" /></div>
             <div>
               <h1 className="font-bold text-lg leading-tight">Painel Master</h1>
-              <p className="text-xs text-indigo-400">Administração</p>
+              <p className="text-xs text-indigo-400">Gestão de Licenças & Salões</p>
             </div>
           </div>
 
           <nav className="flex-1 p-4 space-y-1">
             <button onClick={() => setActiveTab('master_profs')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'master_profs' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-              <Users className="w-5 h-5" /> Profissionais
+              <Users className="w-5 h-5" /> Salões & Assinaturas
             </button>
           </nav>
 
@@ -721,48 +821,246 @@ export default function App() {
         <main className="flex-1 p-8 overflow-y-auto">
           <div className="flex justify-between items-center mb-6">
             <div>
-              <h2 className="text-2xl font-bold text-slate-900">Profissionais Cadastrados</h2>
-              <p className="text-sm text-slate-500 mt-1">Lista completa de acessos criados no sistema.</p>
+              <h2 className="text-2xl font-bold text-slate-900">Acompanhamento de Salões & Assinaturas</h2>
+              <p className="text-sm text-slate-500 mt-1">Gerencie vencimentos, endereços e liberação de agendamento por link.</p>
             </div>
             <button onClick={() => setShowAddProModal(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 shadow">
-              <UserPlus className="w-4 h-4" /> Cadastrar Novo Profissional
+              <UserPlus className="w-4 h-4" /> Cadastrar Novo Salão
             </button>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4">
-            {professionals.map(p => {
+          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-3">
+            {professionals.filter(p => p.role !== 'master').map(p => {
+              const lic = licencas.find(l => l.profissional_id === p.id);
+              const isExpanded = expandedProId === p.id;
               const linkPublico = `${window.location.origin}/?pro=${p.id}`;
+
+              // Cálculo de expiração
+              let diasRestantes = null;
+              let exspirado = false;
+              if (lic?.data_vencimento) {
+                const hoje = new Date();
+                const venc = new Date(lic.data_vencimento);
+                const diffTime = venc - hoje;
+                diasRestantes = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                if (diasRestantes < 0) exspirado = true;
+              }
+
               return (
-                <div key={p.id} className="p-4 border rounded-xl bg-slate-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-bold text-slate-900 text-base">{p.nome}</h4>
-                      <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
-                        {p.role}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500">{p.email} • WhatsApp: {p.telefone || 'Não informado'}</p>
-                    
-                    {p.role !== 'master' && (
-                      <div className="mt-2 flex items-center gap-2 text-xs bg-white p-2 rounded-lg border text-slate-600">
-                        <span className="font-semibold text-slate-700">Link de Agendamento:</span>
-                        <span className="truncate max-w-xs text-indigo-600">{linkPublico}</span>
-                        <button onClick={() => { navigator.clipboard.writeText(linkPublico); alert('Link copiado!'); }} className="p-1 hover:bg-slate-100 rounded text-slate-500">
-                          <Copy className="w-3.5 h-3.5" />
-                        </button>
+                <div key={p.id} className="border rounded-xl bg-slate-50 overflow-hidden transition">
+                  {/* Linha Resumo Expansível */}
+                  <div 
+                    onClick={() => setExpandedProId(isExpanded ? null : p.id)}
+                    className="p-4 flex flex-col md:flex-row justify-between items-start md:items-center cursor-pointer hover:bg-slate-100/80 transition gap-4"
+                  >
+                    <div className="flex items-center gap-3">
+                      {isExpanded ? <ChevronUp className="w-5 h-5 text-indigo-600" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-slate-900 text-base">{p.nome}</h4>
+                          <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                            p.status === 'blocked' ? 'bg-rose-100 text-rose-800' :
+                            exspirado ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                          }`}>
+                            {p.status === 'blocked' ? 'Conta Bloqueada' : exspirado ? 'Licença Expirada' : 'Ativo'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500">{p.email} • WhatsApp: {p.telefone || 'Não informado'}</p>
                       </div>
-                    )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      {lic && (
+                        <div className="text-right text-xs">
+                          <span className="text-slate-500 block">Vencimento: <strong className="text-slate-800">{lic.data_vencimento?.split('-').reverse().join('/')}</strong></span>
+                          <span className={`font-bold block ${exspirado ? 'text-rose-600' : diasRestantes <= 5 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                            {exspirado ? `Vencido há ${Math.abs(diasRestantes)} dias` : `${diasRestantes} dias restantes`}
+                          </span>
+                        </div>
+                      )}
+
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleOpenEditPro(p); }} 
+                        className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+                        title="Editar Informações do Salão"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Conteúdo Expandido */}
+                  {isExpanded && (
+                    <div className="p-4 border-t bg-white space-y-4 text-xs text-slate-600">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-3 rounded-lg border">
+                        <div>
+                          <p className="font-bold text-slate-800 mb-1 flex items-center gap-1">
+                            <MapPin className="w-3.5 h-3.5 text-indigo-600" /> Endereço do Salão:
+                          </p>
+                          <p className="text-slate-600">{p.endereco ? `${p.endereco}, Nº ${p.numero || 'S/N'}` : 'Não cadastrado'}</p>
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-800 mb-1 flex items-center gap-1">
+                            <CreditCard className="w-3.5 h-3.5 text-indigo-600" /> Período da Licença:
+                          </p>
+                          <p className="text-slate-600">
+                            Início: {lic?.data_pagamento?.split('-').reverse().join('/') || 'N/A'} até {lic?.data_vencimento?.split('-').reverse().join('/') || 'N/A'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Ações de Gestão Master */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                        {/* Toggle de Agendamento por Link */}
+                        <div className="flex items-center gap-2 bg-slate-100 px-3 py-2 rounded-lg border">
+                          <span className="font-semibold text-slate-700">Agendamento por Link:</span>
+                          <button 
+                            onClick={() => toggleAgendamentoLink(p.id, p.agendamento_link_ativo !== false)}
+                            className={`flex items-center gap-1 font-bold text-xs px-2.5 py-1 rounded-md transition ${
+                              p.agendamento_link_ativo !== false ? 'bg-emerald-600 text-white' : 'bg-slate-400 text-white'
+                            }`}
+                          >
+                            {p.agendamento_link_ativo !== false ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
+                            {p.agendamento_link_ativo !== false ? 'Habilitado' : 'Desabilitado'}
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {/* Lembrete WhatsApp */}
+                          <button 
+                            onClick={() => enviarAvisoVencimentoWhats(p.nome, p.telefone, lic?.data_vencimento)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow"
+                          >
+                            <BellRing className="w-3.5 h-3.5" /> Enviar Lembrete Whats
+                          </button>
+
+                          {/* Bloquear / Desbloquear */}
+                          <button 
+                            onClick={() => toggleStatusProfissional(p.id, p.status)}
+                            className={`px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow text-white ${
+                              p.status === 'blocked' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-rose-600 hover:bg-rose-700'
+                            }`}
+                          >
+                            {p.status === 'blocked' ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                            {p.status === 'blocked' ? 'Desbloquear Conta' : 'Desativar Conta'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
         </main>
+
+        {/* MODAL EDITAR SALÃO */}
+        {showEditProModal && editingPro && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4">
+              <div className="flex justify-between items-center border-b pb-3">
+                <h3 className="font-bold text-slate-900 text-lg">Editar Salão</h3>
+                <button onClick={() => setShowEditProModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
+              </div>
+
+              <form onSubmit={handleSaveEditedPro} className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Nome do Salão</label>
+                  <input type="text" required value={editingPro.nome} onChange={e => setEditingPro({ ...editingPro, nome: e.target.value })} className="w-full border rounded-lg p-2.5 text-sm" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp</label>
+                    <input type="tel" value={editingPro.telefone || ''} onChange={e => setEditingPro({ ...editingPro, telefone: e.target.value })} className="w-full border rounded-lg p-2.5 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Número do Imóvel</label>
+                    <input type="text" value={editingPro.numero || ''} onChange={e => setEditingPro({ ...editingPro, numero: e.target.value })} className="w-full border rounded-lg p-2.5 text-sm" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Endereço Completo</label>
+                  <input type="text" value={editingPro.endereco || ''} onChange={e => setEditingPro({ ...editingPro, endereco: e.target.value })} className="w-full border rounded-lg p-2.5 text-sm" />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-3 border-t">
+                  <button type="button" onClick={() => setShowEditProModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+                  <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Salvar Alterações</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL CADASTRAR PROFISSIONAL */}
+        {showAddProModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4">
+              <div className="flex justify-between items-center border-b pb-3">
+                <h3 className="font-bold text-slate-900 text-lg">Novo Salão & Licença</h3>
+                <button onClick={() => setShowAddProModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
+              </div>
+
+              {proModalError && <div className="p-3 bg-rose-50 text-rose-700 text-xs rounded-lg border border-rose-200">{proModalError}</div>}
+              {proModalSuccess && <div className="p-3 bg-emerald-50 text-emerald-700 text-xs rounded-lg border border-emerald-200">{proModalSuccess}</div>}
+
+              <form onSubmit={handleCreateProfessional} className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Nome do Salão</label>
+                    <input type="text" required value={newProName} onChange={e => setNewProName(e.target.value)} placeholder="Ex: Salão Beleza" className="w-full border rounded-lg p-2.5 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">E-mail de Acesso</label>
+                    <input type="email" required value={newProEmail} onChange={e => setNewProEmail(e.target.value)} placeholder="email@exemplo.com" className="w-full border rounded-lg p-2.5 text-sm" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp</label>
+                    <input type="tel" required value={newProPhone} onChange={e => setNewProPhone(e.target.value)} placeholder="47999999999" className="w-full border rounded-lg p-2.5 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Senha Inicial</label>
+                    <input type="password" required value={newProPassword} onChange={e => setNewProPassword(e.target.value)} placeholder="Mínimo 6 caracteres" className="w-full border rounded-lg p-2.5 text-sm" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="col-span-2">
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Endereço</label>
+                    <input type="text" value={newProEndereco} onChange={e => setNewProEndereco(e.target.value)} placeholder="Rua / Av..." className="w-full border rounded-lg p-2.5 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Número</label>
+                    <input type="text" value={newProNumero} onChange={e => setNewProNumero(e.target.value)} placeholder="123" className="w-full border rounded-lg p-2.5 text-sm" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                    <input type="checkbox" checked={newProLinkAtivo} onChange={e => setNewProLinkAtivo(e.target.checked)} className="rounded text-indigo-600" />
+                    Habilitar Agendamento por Link para este salão
+                  </label>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-3 border-t">
+                  <button type="button" onClick={() => setShowAddProModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+                  <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Cadastrar Profissional</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
   const proLinkPublico = `${window.location.origin}/?pro=${userProfile?.id}`;
+  const pendentesCount = proAppointments.filter(a => a.status === 'pendente').length;
 
   // PAINEL DA CABELEIREIRA / PROFISSIONAL
   return (
@@ -780,6 +1078,19 @@ export default function App() {
           <button onClick={() => setProTab('agenda')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'agenda' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Calendar className="w-5 h-5" /> Agendamentos
           </button>
+
+          {/* NOVO MENU DE APROVAÇÃO DEDICADO */}
+          <button onClick={() => setProTab('aprovacao')} className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'aprovacao' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+            <div className="flex items-center gap-3">
+              <Inbox className="w-5 h-5" /> Aprovação de Agendamento
+            </div>
+            {pendentesCount > 0 && (
+              <span className="bg-amber-500 text-slate-900 font-bold text-xs px-2 py-0.5 rounded-full">
+                {pendentesCount}
+              </span>
+            )}
+          </button>
+
           <button onClick={() => setProTab('servicos')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'servicos' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Scissors className="w-5 h-5" /> Serviços & Produtos
           </button>
@@ -830,13 +1141,13 @@ export default function App() {
           </div>
         </div>
 
-        {/* TAB AGENDAMENTOS */}
+        {/* TAB AGENDAMENTOS CONFIRMADOS */}
         {proTab === 'agenda' && (
           <div>
             <div className="flex justify-between items-center mb-6">
               <div>
-                <h2 className="text-2xl font-bold text-slate-900">Meus Agendamentos</h2>
-                <p className="text-sm text-slate-500 mt-1">Aprove solicitações ou cadastre agendamentos manuais.</p>
+                <h2 className="text-2xl font-bold text-slate-900">Agenda de Horários</h2>
+                <p className="text-sm text-slate-500 mt-1">Lista de compromissos confirmados no salão.</p>
               </div>
               <button 
                 onClick={() => setShowAddApptModal(true)}
@@ -847,19 +1158,16 @@ export default function App() {
             </div>
 
             <div className="bg-white rounded-xl border p-6 shadow-sm space-y-3">
-              {proAppointments.length === 0 ? (
-                <p className="text-slate-500 text-sm">Nenhum agendamento gravado ainda.</p>
+              {proAppointments.filter(a => a.status === 'confirmado').length === 0 ? (
+                <p className="text-slate-500 text-sm">Nenhum agendamento confirmado na agenda.</p>
               ) : (
-                proAppointments.map(a => (
+                proAppointments.filter(a => a.status === 'confirmado').map(a => (
                   <div key={a.id} className="p-4 border rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center bg-slate-50 gap-4">
                     <div>
                       <div className="flex items-center gap-2">
                         <h4 className="font-bold text-slate-900 text-base">{a.clientes?.nome}</h4>
-                        <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold uppercase ${
-                          a.status === 'confirmado' ? 'bg-emerald-100 text-emerald-800' :
-                          a.status === 'pendente' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'
-                        }`}>
-                          {a.status === 'confirmado' ? 'Aprovado' : a.status === 'pendente' ? 'Aguardando Aprovação' : 'Cancelado'}
+                        <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold uppercase bg-emerald-100 text-emerald-800">
+                          Confirmado
                         </span>
                       </div>
                       <p className="text-xs text-slate-500">WhatsApp: {a.clientes?.telefone || 'Não informado'}</p>
@@ -871,34 +1179,78 @@ export default function App() {
                       )}
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="font-bold text-slate-900 text-sm">{a.data?.split('-').reverse().join('/')} às {a.horario}</span>
+                      <button 
+                        onClick={() => enviarConfirmacaoWhatsApp(a.clientes?.nome, a.clientes?.telefone, a.data, a.horario, a.servicos?.nome)}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow"
+                      >
+                        <MessageSquare className="w-4 h-4" /> Lembrete Whats
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB EXCLUSIVA DE APROVAÇÃO DE AGENDAMENTOS */}
+        {proTab === 'aprovacao' && (
+          <div>
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+                <Inbox className="w-7 h-7 text-indigo-600" /> Solicitados via Link (Aguardando Aprovação)
+              </h2>
+              <p className="text-sm text-slate-500 mt-1">Aprove ou recuse os pedidos de agendamento enviados pelas clientes através do link.</p>
+            </div>
+
+            <div className="bg-white rounded-xl border p-6 shadow-sm space-y-3">
+              {proAppointments.filter(a => a.status === 'pendente').length === 0 ? (
+                <div className="text-center py-8 text-slate-500 space-y-2">
+                  <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto opacity-80" />
+                  <p className="font-semibold text-slate-700">Tudo limpo!</p>
+                  <p className="text-xs">Não há nenhuma solicitação pendente no momento.</p>
+                </div>
+              ) : (
+                proAppointments.filter(a => a.status === 'pendente').map(a => (
+                  <div key={a.id} className="p-4 border-2 border-amber-200 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center bg-amber-50/40 gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-slate-900 text-base">{a.clientes?.nome}</h4>
+                        <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-amber-200 text-amber-900 uppercase">
+                          Pendente
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600">WhatsApp: {a.clientes?.telefone || 'Não informado'}</p>
+                      <p className="text-xs text-indigo-700 font-bold mt-1">
+                        Serviço: {a.servicos?.nome} — R$ {parseFloat(a.servicos?.preco || 0).toFixed(2)}
+                      </p>
+                      {a.forma_pagamento && (
+                        <p className="text-xs text-slate-600 font-medium">Pagamento Escolhido: <strong className="text-slate-900">{a.forma_pagamento}</strong></p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-4">
                       <div className="text-right">
-                        <span className="font-bold text-slate-900 block text-sm">{a.data} às {a.horario}</span>
+                        <span className="font-bold text-slate-900 text-base block">{a.data?.split('-').reverse().join('/')}</span>
+                        <span className="text-xs font-semibold text-slate-600 block">às {a.horario}</span>
                       </div>
 
-                      {a.status === 'pendente' ? (
-                        <div className="flex items-center gap-2">
-                          <button 
-                            onClick={() => handleUpdateApptStatus(a.id, 'confirmado')}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-2 rounded-lg font-bold flex items-center gap-1 shadow"
-                          >
-                            <Check className="w-4 h-4" /> Aprovar
-                          </button>
-                          <button 
-                            onClick={() => handleUpdateApptStatus(a.id, 'cancelado')}
-                            className="bg-rose-600 hover:bg-rose-700 text-white text-xs px-3 py-2 rounded-lg font-bold flex items-center gap-1 shadow"
-                          >
-                            <X className="w-4 h-4" /> Recusar
-                          </button>
-                        </div>
-                      ) : (
+                      <div className="flex items-center gap-2">
                         <button 
-                          onClick={() => enviarConfirmacaoWhatsApp(a.clientes?.nome, a.clientes?.telefone, a.data, a.horario, a.servicos?.nome)}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow"
+                          onClick={() => handleUpdateApptStatus(a.id, 'confirmado')}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-4 py-2.5 rounded-lg font-bold flex items-center gap-1 shadow transition"
                         >
-                          <MessageSquare className="w-4 h-4" /> Lembrete Whats
+                          <Check className="w-4 h-4" /> Aprovar
                         </button>
-                      )}
+                        <button 
+                          onClick={() => handleUpdateApptStatus(a.id, 'cancelado')}
+                          className="bg-rose-600 hover:bg-rose-700 text-white text-xs px-4 py-2.5 rounded-lg font-bold flex items-center gap-1 shadow transition"
+                        >
+                          <X className="w-4 h-4" /> Recusar
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))
@@ -1023,7 +1375,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB HORÁRIOS DA SEMANA & FOLGAS / FERIADOS */}
+        {/* TAB HORÁRIOS DA SEMANA & FOLGAS */}
         {proTab === 'config' && (
           <div className="space-y-8">
             <div>
@@ -1037,7 +1389,6 @@ export default function App() {
               </div>
             )}
 
-            {/* SEÇÃO 1: GRADE SEMANAL */}
             <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
               <h3 className="font-bold text-slate-900 text-base border-b pb-3 flex items-center gap-2">
                 <Clock className="w-5 h-5 text-indigo-600" /> Grade Semanal de Atendimento
@@ -1090,7 +1441,6 @@ export default function App() {
               </form>
             </div>
 
-            {/* SEÇÃO 2: FOLGAS E FERIADOS ESPECÍFICOS */}
             <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
               <h3 className="font-bold text-slate-900 text-base border-b pb-3 flex items-center gap-2">
                 <CalendarOff className="w-5 h-5 text-rose-600" /> Folgas e Feriados Específicos (Dia Off)
@@ -1114,7 +1464,7 @@ export default function App() {
                     type="text" 
                     value={newOffMotivo} 
                     onChange={e => setNewOffMotivo(e.target.value)} 
-                    placeholder="Ex: Feriado de Natal, Folga Médica, Aniversário" 
+                    placeholder="Ex: Feriado de Natal, Folga Médica" 
                     className="w-full border rounded-lg p-2.5 text-sm"
                   />
                 </div>
@@ -1153,7 +1503,7 @@ export default function App() {
         )}
       </main>
 
-      {/* MODAIS CADASTRAR/EDITAR SERVIÇO, CLIENTE E AGENDAMENTO MANUAL MANTIDOS */}
+      {/* MODAL CADASTRAR / EDITAR SERVIÇO */}
       {showServiceModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
@@ -1169,52 +1519,23 @@ export default function App() {
             <form onSubmit={handleSaveService} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Nome do Serviço ou Produto</label>
-                <input 
-                  type="text" 
-                  required 
-                  value={serviceName} 
-                  onChange={e => setServiceName(e.target.value)} 
-                  placeholder="Ex: Corte Feminino, Escova, Botox" 
-                  className="w-full border rounded-lg p-2.5 text-sm" 
-                />
+                <input type="text" required value={serviceName} onChange={e => setServiceName(e.target.value)} placeholder="Ex: Corte Feminino" className="w-full border rounded-lg p-2.5 text-sm" />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Preço (R$)</label>
-                  <input 
-                    type="number" 
-                    step="0.01" 
-                    required 
-                    value={servicePrice} 
-                    onChange={e => setServicePrice(e.target.value)} 
-                    placeholder="50.00" 
-                    className="w-full border rounded-lg p-2.5 text-sm" 
-                  />
+                  <input type="number" step="0.01" required value={servicePrice} onChange={e => setServicePrice(e.target.value)} placeholder="50.00" className="w-full border rounded-lg p-2.5 text-sm" />
                 </div>
-
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Duração (Minutos)</label>
-                  <input 
-                    type="number" 
-                    required 
-                    value={serviceDuration} 
-                    onChange={e => setServiceDuration(e.target.value)} 
-                    placeholder="30" 
-                    className="w-full border rounded-lg p-2.5 text-sm" 
-                  />
+                  <input type="number" required value={serviceDuration} onChange={e => setServiceDuration(e.target.value)} placeholder="30" className="w-full border rounded-lg p-2.5 text-sm" />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Descrição do Procedimento</label>
-                <textarea 
-                  rows="3"
-                  value={serviceDesc} 
-                  onChange={e => setServiceDesc(e.target.value)} 
-                  placeholder="Descreva os detalhes do serviço ou produto..." 
-                  className="w-full border rounded-lg p-2.5 text-sm"
-                ></textarea>
+                <textarea rows="3" value={serviceDesc} onChange={e => setServiceDesc(e.target.value)} placeholder="Descreva os detalhes..." className="w-full border rounded-lg p-2.5 text-sm"></textarea>
               </div>
 
               <div className="flex justify-end gap-3 pt-2 border-t">
@@ -1228,6 +1549,7 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL CADASTRAR CLIENTE */}
       {showAddClientModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
@@ -1241,39 +1563,24 @@ export default function App() {
             <form onSubmit={handleAddClient} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Nome Completo</label>
-                <input 
-                  type="text" 
-                  required 
-                  value={newClientName} 
-                  onChange={e => setNewClientName(e.target.value)} 
-                  placeholder="Ex: Mariana Silva" 
-                  className="w-full border rounded-lg p-2.5 text-sm" 
-                />
+                <input type="text" required value={newClientName} onChange={e => setNewClientName(e.target.value)} placeholder="Ex: Mariana Silva" className="w-full border rounded-lg p-2.5 text-sm" />
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp / Telefone</label>
-                <input 
-                  type="tel" 
-                  required 
-                  value={newClientPhone} 
-                  onChange={e => setNewClientPhone(e.target.value)} 
-                  placeholder="(47) 99999-9999" 
-                  className="w-full border rounded-lg p-2.5 text-sm" 
-                />
+                <input type="tel" required value={newClientPhone} onChange={e => setNewClientPhone(e.target.value)} placeholder="(47) 99999-9999" className="w-full border rounded-lg p-2.5 text-sm" />
               </div>
 
               <div className="flex justify-end gap-3 pt-2 border-t">
                 <button type="button" onClick={() => setShowAddClientModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
-                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">
-                  Salvar Cliente
-                </button>
+                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Salvar Cliente</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
+      {/* MODAL AGENDAMENTO MANUAL */}
       {showAddApptModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4">
