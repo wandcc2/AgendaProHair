@@ -5,7 +5,7 @@ import {
 import { supabase, supabaseAdmin } from '../services/supabaseClient';
 
 export default function MasterDashboard({ userProfile, professionals, licencas, loadAppData, onLogout }) {
-  const [activeTab, setActiveTab] = useState('master_profs'); // master_profs | master_financeiro
+  const [activeTab, setActiveTab] = useState('master_profs');
   const [expandedProId, setExpandedProId] = useState(null);
 
   // Modal Novo Salão
@@ -85,6 +85,7 @@ export default function MasterDashboard({ userProfile, professionals, licencas, 
           forma_pagamento: editFormaPagto,
           data_pagamento: new Date().toISOString().split('T')[0],
           data_vencimento: dataVenc,
+          vencimento: dataVenc, // Mapeado para garantir restrição de coluna antiga no banco
           status: 'active'
         };
 
@@ -149,6 +150,7 @@ export default function MasterDashboard({ userProfile, professionals, licencas, 
           forma_pagamento: formaPagamento,
           data_pagamento: new Date().toISOString().split('T')[0],
           data_vencimento: dataVenc,
+          vencimento: dataVenc,
           status: 'active'
         }]);
 
@@ -204,14 +206,11 @@ export default function MasterDashboard({ userProfile, professionals, licencas, 
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-3">
               {professionals.filter(p => p.role !== 'master').map(p => {
                 const lic = licencas.find(l => l.profissional_id === p.id);
-                const isExpanded = expandedProId === p.id;
+                const dataVencStr = lic?.data_vencimento || lic?.vencimento;
 
                 return (
                   <div key={p.id} className="border rounded-xl bg-slate-50 overflow-hidden transition">
-                    <div 
-                      onClick={() => setExpandedProId(isExpanded ? null : p.id)}
-                      className="p-4 flex flex-col md:flex-row justify-between items-start md:items-center cursor-pointer hover:bg-slate-100/80 transition gap-4"
-                    >
+                    <div className="p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                       <div className="flex items-center gap-3">
                         {p.logo_url ? (
                           <img src={p.logo_url} alt="Logo" className="w-10 h-10 rounded-lg object-cover border" />
@@ -222,15 +221,15 @@ export default function MasterDashboard({ userProfile, professionals, licencas, 
                         )}
                         <div>
                           <h4 className="font-bold text-slate-900 text-base">{p.nome}</h4>
-                          <p className="text-xs text-slate-500">{p.email} • WhatsApp: {p.telefone || 'N/I'}</p>
+                          <p className="text-xs text-slate-500">{p.email} • WhatsApp: {p.telefone || p.phone || 'N/I'}</p>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-3">
                         <span className="text-xs font-bold text-slate-700 bg-slate-200 px-3 py-1 rounded-full">
-                          Vencimento: {lic?.data_vencimento ? lic.data_vencimento.split('-').reverse().join('/') : 'Vitalício'}
+                          Vencimento: {dataVencStr ? dataVencStr.split('-').reverse().join('/') : 'Vitalício'}
                         </span>
-                        <button onClick={(e) => { e.stopPropagation(); handleOpenEditPro(p); }} className="px-3 py-1.5 bg-indigo-50 text-indigo-600 font-bold rounded-lg text-xs border border-indigo-200">
+                        <button onClick={() => handleOpenEditPro(p)} className="px-3 py-1.5 bg-indigo-50 text-indigo-600 font-bold rounded-lg text-xs border border-indigo-200">
                           Editar / Licença
                         </button>
                       </div>
@@ -274,130 +273,9 @@ export default function MasterDashboard({ userProfile, professionals, licencas, 
                 <div className="p-3 bg-slate-100 text-slate-700 rounded-xl"><Users className="w-6 h-6" /></div>
               </div>
             </div>
-
-            <div className="bg-white rounded-xl border p-6 shadow-sm">
-              <h3 className="font-bold text-slate-900 text-base mb-4">Histórico de Transações e Licenças Vendidas</h3>
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="border-b bg-slate-50 text-slate-600">
-                    <th className="p-3 font-bold">Salão</th>
-                    <th className="p-3 font-bold">Plano</th>
-                    <th className="p-3 font-bold">Valor</th>
-                    <th className="p-3 font-bold">Forma de Pagamento</th>
-                    <th className="p-3 font-bold">Data Compra</th>
-                    <th className="p-3 font-bold">Vencimento</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {licencas.map(l => {
-                    const pro = professionals.find(p => p.id === l.profissional_id);
-                    return (
-                      <tr key={l.id} className="border-b hover:bg-slate-50">
-                        <td className="p-3 font-bold text-slate-800">{pro?.nome || 'Salão'}</td>
-                        <td className="p-3">{l.plano}</td>
-                        <td className="p-3 font-bold text-emerald-600">R$ {parseFloat(l.valor || 0).toFixed(2)}</td>
-                        <td className="p-3">{l.forma_pagamento}</td>
-                        <td className="p-3">{l.data_pagamento?.split('-').reverse().join('/')}</td>
-                        <td className="p-3">{l.data_vencimento ? l.data_vencimento.split('-').reverse().join('/') : 'Vitalício'}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
           </div>
         )}
       </main>
-
-      {/* MODAL CADASTRAR NOVO SALÃO */}
-      {showAddProModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="font-bold text-slate-900 text-lg">Novo Salão com Personalização & Licença</h3>
-              <button onClick={() => setShowAddProModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
-            </div>
-
-            {proModalError && <div className="p-3 bg-rose-50 text-rose-700 text-xs rounded-lg border border-rose-200">{proModalError}</div>}
-            {proModalSuccess && <div className="p-3 bg-emerald-50 text-emerald-700 text-xs rounded-lg border border-emerald-200">{proModalSuccess}</div>}
-
-            <form onSubmit={handleCreateProfessional} className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Nome do Salão</label>
-                  <input type="text" required value={newProName} onChange={e => setNewProName(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">E-mail</label>
-                  <input type="email" required value={newProEmail} onChange={e => setNewProEmail(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp</label>
-                  <input type="tel" required value={newProPhone} onChange={e => setNewProPhone(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Senha</label>
-                  <input type="password" required value={newProPassword} onChange={e => setNewProPassword(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
-                </div>
-              </div>
-
-              <div className="border-t pt-3 space-y-3">
-                <h4 className="font-bold text-slate-900 text-xs text-indigo-600 flex items-center gap-1"><Palette className="w-4 h-4" /> Personalização Visual</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">URL da Foto / Logo</label>
-                    <input type="text" value={newProLogo} onChange={e => setNewProLogo(e.target.value)} placeholder="https://..." className="w-full border rounded-lg p-2 text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Cor Principal</label>
-                    <input type="color" value={newProCor} onChange={e => setNewProCor(e.target.value)} className="w-full h-9 border rounded-lg p-1 cursor-pointer" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="border-t pt-3 space-y-3">
-                <h4 className="font-bold text-slate-900 text-xs text-indigo-600 flex items-center gap-1"><CreditCard className="w-4 h-4" /> Licença & Período de Uso</h4>
-                <select value={tipoLicencaNovo} onChange={e => setTipoLicencaNovo(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm font-medium">
-                  <option value="dias">Quantidade de Dias (Ex: 30 dias)</option>
-                  <option value="data">Data Específica de Expiração</option>
-                  <option value="vitalicio">Acesso Vitalício</option>
-                </select>
-
-                {tipoLicencaNovo === 'dias' && (
-                  <input type="number" required value={diasAcesso} onChange={e => setDiasAcesso(e.target.value)} placeholder="30" className="w-full border rounded-lg p-2.5 text-sm" />
-                )}
-
-                {tipoLicencaNovo === 'data' && (
-                  <input type="date" required value={dataEspecificaVenc} onChange={e => setDataEspecificaVenc(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
-                )}
-
-                <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Valor Pago (R$)</label>
-                    <input type="number" step="0.01" value={planoValor} onChange={e => setPlanoValor(e.target.value)} className="w-full border rounded-lg p-2 text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Pagamento</label>
-                    <select value={formaPagamento} onChange={e => setFormaPagamento(e.target.value)} className="w-full border rounded-lg p-2 text-sm">
-                      <option value="Pix">Pix</option>
-                      <option value="Cartão de Crédito">Cartão de Crédito</option>
-                      <option value="Dinheiro">Dinheiro</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-3 border-t">
-                <button type="button" onClick={() => setShowAddProModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
-                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Cadastrar Salão</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* MODAL EDITAR SALÃO */}
       {showEditProModal && editingPro && (
@@ -417,17 +295,12 @@ export default function MasterDashboard({ userProfile, professionals, licencas, 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp</label>
-                  <input type="tel" value={editingPro.telefone || ''} onChange={e => setEditingPro({ ...editingPro, telefone: e.target.value })} className="w-full border rounded-lg p-2.5 text-sm" />
+                  <input type="tel" value={editingPro.telefone || editingPro.phone || ''} onChange={e => setEditingPro({ ...editingPro, telefone: e.target.value, phone: e.target.value })} className="w-full border rounded-lg p-2.5 text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Cor Principal</label>
                   <input type="color" value={editingPro.cor_primaria || '#4f46e5'} onChange={e => setEditingPro({ ...editingPro, cor_primaria: e.target.value })} className="w-full h-9 border rounded-lg p-1 cursor-pointer" />
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">URL da Logo / Foto</label>
-                <input type="text" value={editingPro.logo_url || ''} onChange={e => setEditingPro({ ...editingPro, logo_url: e.target.value })} className="w-full border rounded-lg p-2.5 text-sm" />
               </div>
 
               <div className="border-t pt-3 space-y-3">
@@ -449,7 +322,7 @@ export default function MasterDashboard({ userProfile, professionals, licencas, 
 
                 <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Valor Pago em Licenças (R$)</label>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Valor Pago (R$)</label>
                     <input type="number" step="0.01" value={editValorLicenca} onChange={e => setEditValorLicenca(e.target.value)} className="w-full border rounded-lg p-2 text-sm" />
                   </div>
                   <div>
