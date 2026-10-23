@@ -547,7 +547,7 @@ export default function App() {
     }
   };
 
-  // Submissão Pública com Tratamento de Erro de Cliente
+  // Submissão Pública com Tratamento de Cliente Correto
   const handlePublicBookingSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -595,7 +595,6 @@ export default function App() {
         return;
       }
 
-      // Tentar localizar cliente pelo WhatsApp
       let clientId = null;
       const { data: existingCli } = await supabase.from('clientes')
         .select('id')
@@ -607,7 +606,7 @@ export default function App() {
         clientId = existingCli[0].id;
       } else {
         const { data: newCli, error: cliErr } = await supabase.from('clientes').insert([{ 
-          nome: clientName, 
+          nome: clientName,
           telefone: clientPhone, 
           profissional_id: publicProId 
         }]).select('id').single();
@@ -799,7 +798,6 @@ export default function App() {
 
   // PAINEL MASTER
   if (userProfile.role === 'master') {
-    // Filtrar salões com vencimento em <= 7 dias ou expirados
     const saloesComVencimentoProximo = professionals.filter(p => {
       if (p.role === 'master') return false;
       const lic = licencas.find(l => l.profissional_id === p.id);
@@ -807,7 +805,7 @@ export default function App() {
       const hoje = new Date();
       const venc = new Date(lic.data_vencimento);
       const diffDays = Math.ceil((venc - hoje) / (1000 * 60 * 60 * 24));
-      return diffDays <= 7; // 7 dias ou menos (incluindo expirados)
+      return diffDays <= 7;
     });
 
     return (
@@ -826,7 +824,6 @@ export default function App() {
               <Users className="w-5 h-5" /> Salões Cadastrados
             </button>
 
-            {/* NOVO MENU VENCIMENTOS (< 7 DIAS) */}
             <button onClick={() => setActiveTab('master_vencimentos')} className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'master_vencimentos' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
               <div className="flex items-center gap-3">
                 <AlertCircle className="w-5 h-5 text-amber-400" /> Vencimentos (&lt; 7 Dias)
@@ -847,7 +844,6 @@ export default function App() {
         </aside>
 
         <main className="flex-1 p-8 overflow-y-auto">
-          {/* TAB SALÕES CADASTRADOS */}
           {activeTab === 'master_profs' && (
             <div>
               <div className="flex justify-between items-center mb-6">
@@ -973,7 +969,6 @@ export default function App() {
             </div>
           )}
 
-          {/* NOVO MENU VENCIMENTOS DE ASSINATURA (< 7 DIAS) */}
           {activeTab === 'master_vencimentos' && (
             <div>
               <div className="mb-6">
@@ -1040,7 +1035,6 @@ export default function App() {
           )}
         </main>
 
-        {/* MODAL EDITAR SALÃO */}
         {showEditProModal && editingPro && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4">
@@ -1080,7 +1074,6 @@ export default function App() {
           </div>
         )}
 
-        {/* MODAL CADASTRAR PROFISSIONAL */}
         {showAddProModal && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4">
@@ -1195,7 +1188,6 @@ export default function App() {
       </aside>
 
       <main className="flex-1 p-8 overflow-y-auto">
-        {/* CARD DESTAQUE LINK PÚBLICO */}
         <div className="bg-gradient-to-r from-indigo-900 to-slate-900 text-white p-6 rounded-2xl shadow-lg mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border border-indigo-700/50">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -1226,7 +1218,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* TAB AGENDAMENTOS CONFIRMADOS */}
         {proTab === 'agenda' && (
           <div>
             <div className="flex justify-between items-center mb-6">
@@ -1280,7 +1271,6 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB APROVAÇÃO DE AGENDAMENTOS */}
         {proTab === 'aprovacao' && (
           <div>
             <div className="mb-6">
@@ -1344,7 +1334,6 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB SERVIÇOS & PRODUTOS */}
         {proTab === 'servicos' && (
           <div>
             <div className="flex justify-between items-center mb-6">
@@ -1418,7 +1407,6 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB MINHAS CLIENTES */}
         {proTab === 'clientes' && (
           <div>
             <div className="flex justify-between items-center mb-6">
@@ -1458,7 +1446,6 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB HORÁRIOS DA SEMANA & FOLGAS */}
         {proTab === 'config' && (
           <div className="space-y-8">
             <div>
@@ -1585,7 +1572,6 @@ export default function App() {
         )}
       </main>
 
-      {/* MODAL CADASTRAR / EDITAR SERVIÇO */}
       {showServiceModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
@@ -1631,7 +1617,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL CADASTRAR CLIENTE */}
       {showAddClientModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
@@ -1662,7 +1647,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL AGENDAMENTO MANUAL */}
       {showAddApptModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4">
