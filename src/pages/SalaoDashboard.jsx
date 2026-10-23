@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Calendar, Users, Scissors, Clock, DollarSign, Settings, MessageSquare, 
   Palette, LogOut, CalendarPlus, ChevronLeft, ChevronRight, UserPlus, Inbox,
-  Plus, Check, X
+  Plus, Check, X, Edit3, Trash2
 } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 
@@ -22,6 +22,10 @@ export default function SalaoDashboard({
   const [showAddClientModal, setShowAddClientModal] = useState(false);
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [showAddDespesaModal, setShowAddDespesaModal] = useState(false);
+
+  // Estados de Edição
+  const [editingClient, setEditingClient] = useState(null);
+  const [editingService, setEditingService] = useState(null);
 
   // Estados dos Formulários
   const [apptClientType, setApptClientType] = useState('existing');
@@ -56,7 +60,7 @@ export default function SalaoDashboard({
     setDespesas(data || []);
   };
 
-  const pendentes = proAppointments.filter(a => a.status === 'pendente');
+  const pendentes = proAppointments.filter(a => a.status === 'pendente' || !a.status);
 
   const diasDaSemana = Array.from({ length: 7 }).map((_, idx) => {
     const d = new Date(currentWeekStart);
@@ -64,10 +68,9 @@ export default function SalaoDashboard({
     return d;
   });
 
-  // Cálculos Financeiros (DRE)
   const faturamentoBruto = proAppointments
     .filter(a => a.status === 'confirmado')
-    .reduce((acc, a) => acc + (parseFloat(a.servicos?.preco) || 0), 0);
+    .reduce((acc, a) => acc + (parseFloat(a.servicos?.preco || a.servico?.preco) || 0), 0);
 
   const despesasTotais = despesas.reduce((acc, d) => acc + (parseFloat(d.valor) || 0), 0);
   const lucroLiquido = faturamentoBruto - despesasTotais;
@@ -77,50 +80,84 @@ export default function SalaoDashboard({
   const handleUpdateApptStatus = async (apptId, newStatus) => {
     const { error } = await supabase.from('agendamentos').update({ status: newStatus }).eq('id', apptId);
     if (!error) loadAppData();
+    else alert('Erro ao atualizar solicitação: ' + error.message);
   };
 
-  const handleAddClient = async (e) => {
+  const handleSaveClient = async (e) => {
     e.preventDefault();
     try {
-      const { error } = await supabase.from('clientes').insert([{
-        nome: newClientName,
-        telefone: newClientPhone,
-        phone: newClientPhone,
-        endereco: newClientEndereco,
-        profissional_id: userProfile.id
-      }]);
-
-      if (error) throw error;
+      if (editingClient) {
+        const { error } = await supabase.from('clientes').update({
+          nome: newClientName,
+          telefone: newClientPhone,
+          phone: newClientPhone,
+          endereco: newClientEndereco
+        }).eq('id', editingClient.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('clientes').insert([{
+          nome: newClientName,
+          telefone: newClientPhone,
+          phone: newClientPhone,
+          endereco: newClientEndereco,
+          profissional_id: userProfile.id
+        }]);
+        if (error) throw error;
+      }
 
       setNewClientName('');
       setNewClientPhone('');
       setNewClientEndereco('');
+      setEditingClient(null);
       setShowAddClientModal(false);
       await loadAppData();
     } catch (err) {
-      alert('Erro ao cadastrar cliente: ' + err.message);
+      alert('Erro ao salvar cliente: ' + err.message);
     }
   };
 
-  const handleAddService = async (e) => {
+  const handleSaveService = async (e) => {
     e.preventDefault();
     try {
-      const { error } = await supabase.from('servicos').insert([{
-        nome: serviceName,
-        preco: parseFloat(servicePrice),
-        duracao_minutos: parseInt(serviceDuration),
-        profissional_id: userProfile.id
-      }]);
-
-      if (error) throw error;
+      if (editingService) {
+        const { error } = await supabase.from('servicos').update({
+          nome: serviceName,
+          preco: parseFloat(servicePrice),
+          duracao_minutos: parseInt(serviceDuration)
+        }).eq('id', editingService.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('servicos').insert([{
+          nome: serviceName,
+          preco: parseFloat(servicePrice),
+          duracao_minutos: parseInt(serviceDuration),
+          profissional_id: userProfile.id
+        }]);
+        if (error) throw error;
+      }
 
       setServiceName('');
       setServicePrice('');
       setServiceDuration('30');
+      setEditingService(null);
       setShowServiceModal(false);
       await loadAppData();
     } catch (err) {
-      alert('Erro ao cadastrar serviço: ' + err.message);
+      alert('Erro ao salvar serviço: ' + err.message);
+    }
+  };
+
+  const handleDeleteClient = async (id) => {
+    if (window.confirm('Deseja eliminar esta cliente?')) {
+      await supabase.from('clientes').delete().eq('id', id);
+      loadAppData();
+    }
+  };
+
+  const handleDeleteService = async (id) => {
+    if (window.confirm('Deseja eliminar este serviço?')) {
+      await supabase.from('servicos').delete().eq('id', id);
+      loadAppData();
     }
   };
 
@@ -141,19 +178,30 @@ export default function SalaoDashboard({
         finalClientId = newCli.id;
       }
 
-      const { error: apptErr } = await supabase.from('agendamentos').insert([{
+      // Envia em ambas as colunas possíveis para evitar erros de esquema no Supabase
+      const payloadAppt = {
         cliente_id: finalClientId,
+        clientes_id: finalClientId,
         profissional_id: userProfile.id,
         servico_id: manualServiceId,
+        servicos_id: manualServiceId,
         data: manualDate,
         horario: manualTime,
         status: 'confirmado'
-      }]);
+      };
 
+      const { error: apptErr } = await supabase.from('agendamentos').insert([payloadAppt]);
       if (apptErr) throw apptErr;
 
       setShowAddApptModal(false);
+      setManualClientName('');
+      setManualClientPhone('');
+      setSelectedClientId('');
+      setManualServiceId('');
+      setManualDate('');
+      setManualTime('');
       await loadAppData();
+      alert('Agendamento realizado com sucesso!');
     } catch (err) {
       alert('Erro ao agendar: ' + err.message);
     }
@@ -183,10 +231,10 @@ export default function SalaoDashboard({
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col md:flex-row font-sans">
       {/* SIDEBAR */}
-      <aside style={{ backgroundColor: corSidebar }} className="w-full md:w-64 flex flex-col border-r border-slate-800/80 shadow-xl">
-        <div className="p-6 border-b border-slate-800/60 flex items-center gap-3">
+      <aside style={{ backgroundColor: corSidebar }} className="w-full md:w-64 flex flex-col border-r border-slate-800 shadow-xl">
+        <div className="p-6 border-b border-slate-800 flex items-center gap-3">
           {userProfile?.logo_url ? (
-            <img src={userProfile.logo_url} alt="Logo Salão" className="w-12 h-12 rounded-xl object-cover border border-slate-700 shadow" />
+            <img src={userProfile.logo_url} alt="Logo" className="w-12 h-12 rounded-xl object-cover border border-slate-700 shadow" />
           ) : (
             <div style={{ backgroundColor: corTopo }} className="p-2.5 rounded-xl text-white shadow">
               <Scissors className="w-6 h-6" />
@@ -239,12 +287,11 @@ export default function SalaoDashboard({
           </button>
         </nav>
 
-        <div className="p-4 border-t border-slate-800/60 space-y-2">
-          <button onClick={onOpenColorModal} style={{ color: corTextoSidebar }} className="w-full flex items-center justify-center gap-2 bg-slate-800/80 hover:bg-slate-700 py-2.5 rounded-lg text-xs font-semibold transition border border-slate-700">
+        <div className="p-4 border-t border-slate-800 space-y-2">
+          <button onClick={onOpenColorModal} style={{ color: corTextoSidebar }} className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 py-2.5 rounded-lg text-xs font-semibold transition border border-slate-700">
             <Palette className="w-4 h-4 text-amber-400" /> Personalizar Cores
           </button>
-
-          <button onClick={onLogout} style={{ color: corTextoSidebar }} className="w-full flex items-center justify-center gap-2 bg-slate-800/80 hover:bg-rose-900/50 hover:text-rose-200 py-2.5 rounded-lg text-xs font-semibold transition border border-slate-700">
+          <button onClick={onLogout} style={{ color: corTextoSidebar }} className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-rose-900/50 hover:text-rose-200 py-2.5 rounded-lg text-xs font-semibold transition border border-slate-700">
             <LogOut className="w-4 h-4" /> Sair
           </button>
         </div>
@@ -311,8 +358,8 @@ export default function SalaoDashboard({
                         apptsDoDia.map(a => (
                           <div key={a.id} className="p-3 bg-indigo-600 text-white rounded-xl shadow-sm text-xs space-y-1">
                             <span className="font-bold block">{a.horario}</span>
-                            <span className="font-semibold block truncate">{a.clientes?.nome}</span>
-                            <span className="text-[10px] text-indigo-200 block truncate">{a.servicos?.nome}</span>
+                            <span className="font-semibold block truncate">{a.clientes?.nome || a.cliente?.nome || 'Cliente'}</span>
+                            <span className="text-[10px] text-indigo-200 block truncate">{a.servicos?.nome || a.servico?.nome || 'Serviço'}</span>
                           </div>
                         ))
                       )}
@@ -334,8 +381,8 @@ export default function SalaoDashboard({
               pendentes.map(a => (
                 <div key={a.id} className="p-4 border border-amber-500/30 bg-amber-500/10 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                   <div>
-                    <h4 className="font-bold text-white">{a.clientes?.nome} ({a.clientes?.telefone || a.clientes?.phone})</h4>
-                    <p className="text-xs text-slate-300 mt-0.5">{a.servicos?.nome} — {a.data?.split('-').reverse().join('/')} às {a.horario}</p>
+                    <h4 className="font-bold text-white">{a.clientes?.nome || a.cliente?.nome || 'Cliente'} ({a.clientes?.telefone || a.cliente?.telefone || a.clientes?.phone || 'N/I'})</h4>
+                    <p className="text-xs text-slate-300 mt-0.5">{a.servicos?.nome || a.servico?.nome || 'Serviço'} — {a.data?.split('-').reverse().join('/')} às {a.horario}</p>
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => handleUpdateApptStatus(a.id, 'confirmado')} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow flex items-center gap-1">
@@ -356,7 +403,7 @@ export default function SalaoDashboard({
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <h3 className="font-bold text-white text-xl">Clientes Cadastradas</h3>
-              <button onClick={() => setShowAddClientModal(true)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-xs shadow flex items-center gap-1.5">
+              <button onClick={() => { setEditingClient(null); setNewClientName(''); setNewClientPhone(''); setNewClientEndereco(''); setShowAddClientModal(true); }} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-xs shadow flex items-center gap-1.5">
                 <UserPlus className="w-4 h-4" /> Cadastrar Cliente
               </button>
             </div>
@@ -369,6 +416,20 @@ export default function SalaoDashboard({
                     <p className="text-slate-400">WhatsApp: {c.telefone || c.phone || 'N/I'}</p>
                     {c.endereco && <p className="text-slate-500">Endereço: {c.endereco}</p>}
                   </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => {
+                      setEditingClient(c);
+                      setNewClientName(c.nome || '');
+                      setNewClientPhone(c.telefone || c.phone || '');
+                      setNewClientEndereco(c.endereco || '');
+                      setShowAddClientModal(true);
+                    }} className="p-2 bg-indigo-600/20 text-indigo-400 rounded-lg hover:bg-indigo-600/30 flex items-center gap-1">
+                      <Edit3 className="w-4 h-4" /> Editar
+                    </button>
+                    <button onClick={() => handleDeleteClient(c.id)} className="p-2 bg-rose-600/20 text-rose-400 rounded-lg hover:bg-rose-600/30 flex items-center gap-1">
+                      <Trash2 className="w-4 h-4" /> Excluir
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -380,7 +441,7 @@ export default function SalaoDashboard({
           <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6 space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="font-bold text-white text-lg">Serviços e Produtos</h3>
-              <button onClick={() => setShowServiceModal(true)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow flex items-center gap-1">
+              <button onClick={() => { setEditingService(null); setServiceName(''); setServicePrice(''); setServiceDuration('30'); setShowServiceModal(true); }} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow flex items-center gap-1">
                 <Plus className="w-4 h-4" /> Novo Serviço
               </button>
             </div>
@@ -390,6 +451,20 @@ export default function SalaoDashboard({
                   <div>
                     <span className="font-bold text-white text-sm block">{s.nome}</span>
                     <p className="text-slate-400">R$ {parseFloat(s.preco).toFixed(2)} • {s.duracao_minutos || 30} min</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => {
+                      setEditingService(s);
+                      setServiceName(s.nome || '');
+                      setServicePrice(s.preco || '');
+                      setServiceDuration(s.duracao_minutos || '30');
+                      setShowServiceModal(true);
+                    }} className="p-2 bg-indigo-600/20 text-indigo-400 rounded-lg hover:bg-indigo-600/30">
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => handleDeleteService(s.id)} className="p-2 bg-rose-600/20 text-rose-400 rounded-lg hover:bg-rose-600/30">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -565,16 +640,16 @@ export default function SalaoDashboard({
         )}
       </main>
 
-      {/* MODAL CADASTRAR CLIENTE */}
+      {/* MODAL CADASTRAR/EDITAR CLIENTE */}
       {showAddClientModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-800 space-y-4">
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-              <h3 className="font-bold text-white text-lg">Nova Cliente</h3>
+              <h3 className="font-bold text-white text-lg">{editingClient ? 'Editar Cliente' : 'Nova Cliente'}</h3>
               <button onClick={() => setShowAddClientModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
             </div>
 
-            <form onSubmit={handleAddClient} className="space-y-3">
+            <form onSubmit={handleSaveClient} className="space-y-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-400 mb-1">Nome Completo *</label>
                 <input type="text" required value={newClientName} onChange={e => setNewClientName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-white rounded-lg p-2.5 text-sm" />
@@ -597,15 +672,15 @@ export default function SalaoDashboard({
         </div>
       )}
 
-      {/* MODAL SERVIÇO */}
+      {/* MODAL CADASTRAR/EDITAR SERVIÇO */}
       {showServiceModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-800 space-y-4">
             <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-              <h3 className="font-bold text-white text-lg">Novo Serviço</h3>
+              <h3 className="font-bold text-white text-lg">{editingService ? 'Editar Serviço' : 'Novo Serviço'}</h3>
               <button onClick={() => setShowServiceModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
             </div>
-            <form onSubmit={handleAddService} className="space-y-3">
+            <form onSubmit={handleSaveService} className="space-y-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-400 mb-1">Nome do Serviço *</label>
                 <input type="text" required placeholder="Ex: Corte + Escova" value={serviceName} onChange={e => setServiceName(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-white rounded-lg p-2.5 text-sm" />
