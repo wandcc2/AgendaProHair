@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Calendar, Users, Scissors, Clock, DollarSign, Settings, MessageSquare, 
   Palette, LogOut, CalendarPlus, ChevronLeft, ChevronRight, UserPlus, Inbox,
-  Plus, Check, X, PlusCircle, TrendingUp
+  Plus, Check, X
 } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 
@@ -85,7 +85,7 @@ export default function SalaoDashboard({
       const { error } = await supabase.from('clientes').insert([{
         nome: newClientName,
         telefone: newClientPhone,
-        phone: newClientPhone, // Compatibilidade com ambas as colunas
+        phone: newClientPhone,
         endereco: newClientEndereco,
         profissional_id: userProfile.id
       }]);
@@ -206,7 +206,7 @@ export default function SalaoDashboard({
           <button onClick={() => setProTab('solicitacoes')} style={{ color: corTextoSidebar }} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-semibold transition ${proTab === 'solicitacoes' ? 'bg-indigo-600 text-white shadow-md' : 'hover:bg-slate-800/60'}`}>
             <div className="flex items-center gap-3"><Inbox className="w-5 h-5 text-amber-400" /> Solicitações</div>
             {pendentes.length > 0 && (
-              <span className="bg-amber-500 text-slate-900 font-bold text-xs px-2 py-0.5 rounded-full">{pendentes.length}</span>
+              <span className="bg-amber-500 text-slate-950 font-bold text-xs px-2 py-0.5 rounded-full">{pendentes.length}</span>
             )}
           </button>
 
@@ -397,7 +397,7 @@ export default function SalaoDashboard({
           </div>
         )}
 
-        {/* GESTÃO FINANCEIRA / FATURAMENTO (LAYOUT IGUAL À IMAGEM ANEXADA) */}
+        {/* GESTÃO FINANCEIRA / FATURAMENTO */}
         {proTab === 'faturamento' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -416,7 +416,6 @@ export default function SalaoDashboard({
               </div>
             </div>
 
-            {/* BARRA DE APROVEITAMENTO DA RECEITA */}
             <div className="bg-slate-900/90 border border-slate-800 p-5 rounded-2xl space-y-2">
               <div className="flex justify-between text-xs font-bold text-slate-400 uppercase tracking-wider">
                 <span>Aproveitamento da Receita</span>
@@ -427,7 +426,6 @@ export default function SalaoDashboard({
               </div>
             </div>
 
-            {/* TRÊS CARDS DRE (FATURAMENTO, DESPESAS, LUCRO) */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-slate-900/90 border-2 border-emerald-500/80 p-6 rounded-2xl text-center shadow-lg">
                 <span className="text-[11px] text-slate-400 font-extrabold uppercase block mb-2 tracking-wider">Faturamento Bruto</span>
@@ -445,7 +443,6 @@ export default function SalaoDashboard({
               </div>
             </div>
 
-            {/* TABELA DE DESPESAS LANÇADAS */}
             <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 space-y-4">
               <h4 className="font-bold text-white text-sm">Despesas Lançadas no Mês</h4>
               {despesas.length === 0 ? (
@@ -472,7 +469,9 @@ export default function SalaoDashboard({
         {/* HORÁRIOS */}
         {proTab === 'horarios' && (
           <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6 space-y-4">
-            <h3 className="font-bold text-white text-lg border-b border-slate-800 pb-3">Horários de Funcionamento</h3>
+            <h3 className="font-bold text-white text-lg border-b border-slate-800 pb-3">Ajuste de Horários & Pausa para Almoço</h3>
+            {configSuccess && <div className="p-3 bg-emerald-500/20 text-emerald-300 text-xs rounded-lg border border-emerald-500/30">{configSuccess}</div>}
+
             <form onSubmit={salvarHorarioSemana} className="space-y-4">
               {weeklySchedule.map((item, idx) => (
                 <div key={item.dia_semana} className="p-4 border border-slate-800 rounded-xl bg-slate-950 space-y-3">
@@ -485,9 +484,60 @@ export default function SalaoDashboard({
                       }} className="w-4 h-4 text-indigo-600 rounded" />
                       <span className="font-bold text-sm text-white">{item.nome}</span>
                     </div>
+
+                    {item.ativo && (
+                      <label className="flex items-center gap-2 text-xs font-bold text-slate-400 cursor-pointer">
+                        <input type="checkbox" checked={item.com_almoco} onChange={e => {
+                          const updated = [...weeklySchedule];
+                          updated[idx].com_almoco = e.target.checked;
+                          setWeeklySchedule(updated);
+                        }} className="rounded text-indigo-600" />
+                        Pausa para Almoço
+                      </label>
+                    )}
                   </div>
+
+                  {item.ativo && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-800 text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-400">Atendimento:</span>
+                        <input type="time" value={item.hora_inicio} onChange={e => {
+                          const updated = [...weeklySchedule];
+                          updated[idx].hora_inicio = e.target.value;
+                          setWeeklySchedule(updated);
+                        }} className="bg-slate-900 border border-slate-800 text-white rounded p-1.5" />
+                        <span>às</span>
+                        <input type="time" value={item.hora_fim} onChange={e => {
+                          const updated = [...weeklySchedule];
+                          updated[idx].hora_fim = e.target.value;
+                          setWeeklySchedule(updated);
+                        }} className="bg-slate-900 border border-slate-800 text-white rounded p-1.5" />
+                      </div>
+
+                      {item.com_almoco && (
+                        <div className="flex items-center gap-2 bg-amber-500/10 p-2 rounded-lg border border-amber-500/30">
+                          <span className="font-bold text-amber-400">Almoço:</span>
+                          <input type="time" value={item.hora_inicio_almoco} onChange={e => {
+                            const updated = [...weeklySchedule];
+                            updated[idx].hora_inicio_almoco = e.target.value;
+                            setWeeklySchedule(updated);
+                          }} className="bg-slate-900 border border-slate-800 text-white rounded p-1.5" />
+                          <span>às</span>
+                          <input type="time" value={item.hora_fim_almoco} onChange={e => {
+                            const updated = [...weeklySchedule];
+                            updated[idx].hora_fim_almoco = e.target.value;
+                            setWeeklySchedule(updated);
+                          }} className="bg-slate-900 border border-slate-800 text-white rounded p-1.5" />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
+
+              <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-2.5 rounded-lg text-sm shadow">
+                Salvar Horários
+              </button>
             </form>
           </div>
         )}
