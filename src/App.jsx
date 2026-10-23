@@ -3,6 +3,7 @@ import { supabase } from './services/supabaseClient';
 
 import Login from './pages/Login';
 import PublicBooking from './pages/PublicBooking';
+import MasterDashboard from './pages/MasterDashboard';
 import SalaoDashboard from './pages/SalaoDashboard';
 import ColorModal from './components/ColorModal';
 
@@ -19,6 +20,10 @@ export default function App() {
   // Rota Pública
   const queryParams = new URLSearchParams(window.location.search);
   const publicProId = queryParams.get('pro');
+
+  // Master State
+  const [professionals, setProfessionals] = useState([]);
+  const [licencas, setLicencas] = useState([]);
 
   // Profissional / Salão
   const [proTab, setProTab] = useState('agenda');
@@ -128,7 +133,12 @@ export default function App() {
   }, [session, userProfile]);
 
   const loadAppData = async () => {
-    if (userProfile) {
+    if (userProfile?.role === 'master') {
+      const { data: profs } = await supabase.from('perfis').select('*').order('created_at', { ascending: false });
+      const { data: lics } = await supabase.from('licencas').select('*').order('created_at', { ascending: false });
+      setProfessionals(profs || []);
+      setLicencas(lics || []);
+    } else if (userProfile) {
       const { data: cli } = await supabase.from('clientes').select('*').eq('profissional_id', userProfile.id).order('nome', { ascending: true });
       const { data: srv } = await supabase.from('servicos').select('*').eq('profissional_id', userProfile.id).order('nome', { ascending: true });
       const { data: appt } = await supabase.from('agendamentos').select('*, clientes(nome, telefone), servicos(nome, preco)').eq('profissional_id', userProfile.id).order('data', { ascending: true });
@@ -171,7 +181,7 @@ export default function App() {
     );
   }
 
-  // ROTA 1: PÁGINA PÚBLICA
+  // ROTA 1: PÁGINA PÚBLICA (?pro=ID)
   if (publicProId) {
     return (
       <PublicBooking
@@ -208,7 +218,20 @@ export default function App() {
     );
   }
 
-  // ROTA 3: DASHBOARD DO SALÃO
+  // ROTA 3: PAINEL MASTER (Se role === 'master')
+  if (userProfile.role === 'master') {
+    return (
+      <MasterDashboard
+        userProfile={userProfile}
+        professionals={professionals}
+        licencas={licencas}
+        loadAppData={loadAppData}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
+  // ROTA 4: DASHBOARD DO SALÃO (Se role === 'professional')
   return (
     <>
       <SalaoDashboard
