@@ -38,7 +38,8 @@ import {
   ToggleLeft,
   ToggleRight,
   Inbox,
-  AlertCircle
+  AlertCircle,
+  Infinity as InfinityIcon
 } from 'lucide-react';
 
 const SUPABASE_URL = 'https://ujdaesnmqhkzefqdwygk.supabase.co';
@@ -86,15 +87,20 @@ export default function App() {
   const [newProNumero, setNewProNumero] = useState('');
   const [newProPassword, setNewProPassword] = useState('');
   const [newProLinkAtivo, setNewProLinkAtivo] = useState(true);
+  const [tipoLicencaNovo, setTipoLicencaNovo] = useState('dias'); // 'dias' | 'vitalicio'
+  const [diasAcesso, setDiasAcesso] = useState(30);
   const [planoValor, setPlanoValor] = useState('50.00');
   const [formaPagamento, setFormaPagamento] = useState('Pix');
-  const [diasAcesso, setDiasAcesso] = useState(30);
   const [proModalError, setProModalError] = useState('');
   const [proModalSuccess, setProModalSuccess] = useState('');
 
-  // Modal Editar Salão (Master)
+  // Modal Editar Salão / Licenças (Master)
   const [showEditProModal, setShowEditProModal] = useState(false);
   const [editingPro, setEditingPro] = useState(null);
+  const [editTipoLicenca, setEditTipoLicenca] = useState('manter'); // 'manter' | 'dias' | 'vitalicio'
+  const [editDiasAcesso, setEditDiasAcesso] = useState(30);
+  const [editValorLicenca, setEditValorLicenca] = useState('50.00');
+  const [editFormaPagto, setEditFormaPagto] = useState('Pix');
 
   // Profissional / Cabeleireira
   const [proTab, setProTab] = useState('agenda');
@@ -275,24 +281,58 @@ export default function App() {
 
   const handleOpenEditPro = (pro) => {
     setEditingPro(pro);
+    setEditTipoLicenca('manter');
+    setEditDiasAcesso(30);
+    setEditValorLicenca('50.00');
+    setEditFormaPagto('Pix');
     setShowEditProModal(true);
   };
 
   const handleSaveEditedPro = async (e) => {
     e.preventDefault();
-    const { error } = await supabase.from('perfis').update({
-      nome: editingPro.nome,
-      telefone: editingPro.telefone,
-      endereco: editingPro.endereco,
-      numero: editingPro.numero,
-      agendamento_link_ativo: editingPro.agendamento_link_ativo
-    }).eq('id', editingPro.id);
+    try {
+      // 1. Atualizar dados do perfil do salão
+      const { error: proErr } = await supabase.from('perfis').update({
+        nome: editingPro.nome,
+        telefone: editingPro.telefone,
+        endereco: editingPro.endereco,
+        numero: editingPro.numero,
+        agendamento_link_ativo: editingPro.agendamento_link_ativo
+      }).eq('id', editingPro.id);
 
-    if (!error) {
+      if (proErr) throw proErr;
+
+      // 2. Se for alterar a licença do salão
+      if (editTipoLicenca !== 'manter') {
+        let dataVenc = null;
+        let planoNome = 'Vitalício';
+
+        if (editTipoLicenca === 'dias') {
+          const hoje = new Date();
+          hoje.setDate(hoje.getDate() + parseInt(editDiasAcesso));
+          dataVenc = hoje.toISOString().split('T')[0];
+          planoNome = `${editDiasAcesso} Dias`;
+        }
+
+        // Criar ou atualizar licença existente
+        const { error: licErr } = await supabase.from('licencas').insert([{
+          profissional_id: editingPro.id,
+          plano: planoNome,
+          valor: parseFloat(editValorLicenca || 0),
+          forma_pagamento: editFormaPagto,
+          data_pagamento: new Date().toISOString().split('T')[0],
+          data_vencimento: dataVenc,
+          status: 'active'
+        }]);
+
+        if (licErr) throw licErr;
+      }
+
       setShowEditProModal(false);
-      loadAppData();
-    } else {
-      alert('Erro ao atualizar salão.');
+      await loadAppData();
+      alert('Salão e licença atualizados com sucesso!');
+    } catch (err) {
+      alert('Erro ao atualizar salão: ' + err.message);
     }
   };
 
@@ -323,16 +363,23 @@ export default function App() {
           status: 'active'
         }]);
 
-        const dataVenc = new Date();
-        dataVenc.setDate(dataVenc.getDate() + parseInt(diasAcesso));
+        let dataVenc = null;
+        let planoNome = 'Vitalício';
+
+        if (tipoLicencaNovo === 'dias') {
+          const dt = new Date();
+          dt.setDate(dt.getDate() + parseInt(diasAcesso));
+          dataVenc = dt.toISOString().split('T')[0];
+          planoNome = `${diasAcesso} Dias`;
+        }
 
         await supabase.from('licencas').insert([{
           profissional_id: authData.user.id,
-          plano: 'Mensal',
-          valor: parseFloat(planoValor),
+          plano: planoNome,
+          valor: parseFloat(planoValor || 0),
           forma_pagamento: formaPagamento,
           data_pagamento: new Date().toISOString().split('T')[0],
-          data_vencimento: dataVenc.toISOString().split('T')[0],
+          data_vencimento: dataVenc,
           status: 'active'
         }]);
 
@@ -801,7 +848,9 @@ export default function App() {
     const saloesComVencimentoProximo = professionals.filter(p => {
       if (p.role === 'master') return false;
       const lic = licencas.find(l => l.profissional_id === p.id);
-      if (!lic?.data_vencimento) return false;
+      if (!lic) return false;
+      if (!lic.data_vencimento) return false; // Vitalício não vence
+
       const hoje = new Date();
       const venc = new Date(lic.data_vencimento);
       const diffDays = Math.ceil((venc - hoje) / (1000 * 60 * 60 * 24));
@@ -849,7 +898,7 @@ export default function App() {
               <div className="flex justify-between items-center mb-6">
                 <div>
                   <h2 className="text-2xl font-bold text-slate-900">Salões Cadastrados</h2>
-                  <p className="text-sm text-slate-500 mt-1">Visão geral de todos os acessos criados no sistema.</p>
+                  <p className="text-sm text-slate-500 mt-1">Visão geral e controle completo de licenças dos salões.</p>
                 </div>
                 <button onClick={() => setShowAddProModal(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 shadow">
                   <UserPlus className="w-4 h-4" /> Cadastrar Novo Salão
@@ -861,13 +910,19 @@ export default function App() {
                   const lic = licencas.find(l => l.profissional_id === p.id);
                   const isExpanded = expandedProId === p.id;
 
+                  let isVitalicio = false;
                   let diasRestantes = null;
                   let exspirado = false;
-                  if (lic?.data_vencimento) {
-                    const hoje = new Date();
-                    const venc = new Date(lic.data_vencimento);
-                    diasRestantes = Math.ceil((venc - hoje) / (1000 * 60 * 60 * 24));
-                    if (diasRestantes < 0) exspirado = true;
+
+                  if (lic) {
+                    if (!lic.data_vencimento) {
+                      isVitalicio = true;
+                    } else {
+                      const hoje = new Date();
+                      const venc = new Date(lic.data_vencimento);
+                      diasRestantes = Math.ceil((venc - hoje) / (1000 * 60 * 60 * 24));
+                      if (diasRestantes < 0) exspirado = true;
+                    }
                   }
 
                   return (
@@ -883,9 +938,10 @@ export default function App() {
                               <h4 className="font-bold text-slate-900 text-base">{p.nome}</h4>
                               <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
                                 p.status === 'blocked' ? 'bg-rose-100 text-rose-800' :
+                                isVitalicio ? 'bg-purple-100 text-purple-800' :
                                 exspirado ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
                               }`}>
-                                {p.status === 'blocked' ? 'Bloqueado' : exspirado ? 'Expirado' : 'Ativo'}
+                                {p.status === 'blocked' ? 'Bloqueado' : isVitalicio ? 'Vitalício' : exspirado ? 'Expirado' : 'Ativo'}
                               </span>
                             </div>
                             <p className="text-xs text-slate-500">{p.email} • WhatsApp: {p.telefone || 'Não informado'}</p>
@@ -895,18 +951,20 @@ export default function App() {
                         <div className="flex items-center gap-3">
                           {lic && (
                             <div className="text-right text-xs">
-                              <span className="text-slate-500 block">Vencimento: <strong className="text-slate-800">{lic.data_vencimento?.split('-').reverse().join('/')}</strong></span>
-                              <span className={`font-bold block ${exspirado ? 'text-rose-600' : diasRestantes <= 5 ? 'text-amber-600' : 'text-emerald-600'}`}>
-                                {exspirado ? `Vencido há ${Math.abs(diasRestantes)} dias` : `${diasRestantes} dias restantes`}
+                              <span className="text-slate-500 block">
+                                Vencimento: <strong className="text-slate-800">{isVitalicio ? 'Vitalício (Sem Expiração)' : lic.data_vencimento?.split('-').reverse().join('/')}</strong>
+                              </span>
+                              <span className={`font-bold block ${isVitalicio ? 'text-purple-600' : exspirado ? 'text-rose-600' : diasRestantes <= 5 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                                {isVitalicio ? 'Acesso Permanente' : exspirado ? `Vencido há ${Math.abs(diasRestantes)} dias` : `${diasRestantes} dias restantes`}
                               </span>
                             </div>
                           )}
 
                           <button 
                             onClick={(e) => { e.stopPropagation(); handleOpenEditPro(p); }} 
-                            className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+                            className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold rounded-lg text-xs flex items-center gap-1.5 transition border border-indigo-200"
                           >
-                            <Edit className="w-4 h-4" />
+                            <Edit className="w-3.5 h-3.5" /> Editar / Licença
                           </button>
                         </div>
                       </div>
@@ -922,9 +980,10 @@ export default function App() {
                             </div>
                             <div>
                               <p className="font-bold text-slate-800 mb-1 flex items-center gap-1">
-                                <CreditCard className="w-3.5 h-3.5 text-indigo-600" /> Licença:
+                                <CreditCard className="w-3.5 h-3.5 text-indigo-600" /> Detalhes da Licença:
                               </p>
-                              <p>Ativação: {lic?.data_pagamento?.split('-').reverse().join('/') || 'N/A'} até {lic?.data_vencimento?.split('-').reverse().join('/') || 'N/A'}</p>
+                              <p>Plano: <strong>{lic?.plano || 'N/A'}</strong> — R$ {parseFloat(lic?.valor || 0).toFixed(2)} ({lic?.forma_pagamento || 'N/A'})</p>
+                              <p>Ativação: {lic?.data_pagamento?.split('-').reverse().join('/') || 'N/A'}</p>
                             </div>
                           </div>
 
@@ -943,12 +1002,14 @@ export default function App() {
                             </div>
 
                             <div className="flex items-center gap-2">
-                              <button 
-                                onClick={() => enviarAvisoVencimentoWhats(p.nome, p.telefone, lic?.data_vencimento)}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow"
-                              >
-                                <BellRing className="w-3.5 h-3.5" /> Lembrete Whats
-                              </button>
+                              {!isVitalicio && (
+                                <button 
+                                  onClick={() => enviarAvisoVencimentoWhats(p.nome, p.telefone, lic?.data_vencimento)}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow"
+                                >
+                                  <BellRing className="w-3.5 h-3.5" /> Lembrete Whats
+                                </button>
+                              )}
                               <button 
                                 onClick={() => toggleStatusProfissional(p.id, p.status)}
                                 className={`px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow text-white ${
@@ -1012,18 +1073,16 @@ export default function App() {
 
                         <div className="flex items-center gap-2">
                           <button 
-                            onClick={() => enviarAvisoVencimentoWhats(p.nome, p.telefone, lic?.data_vencimento)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-4 py-2.5 rounded-lg font-bold flex items-center gap-1.5 shadow transition"
+                            onClick={() => handleOpenEditPro(p)}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3.5 py-2.5 rounded-lg font-bold flex items-center gap-1.5 shadow transition"
                           >
-                            <BellRing className="w-4 h-4" /> Cobrar via WhatsApp
+                            <CreditCard className="w-4 h-4" /> Inserir Nova Licença
                           </button>
                           <button 
-                            onClick={() => toggleStatusProfissional(p.id, p.status)}
-                            className={`text-xs px-3 py-2.5 rounded-lg font-bold text-white shadow ${
-                              p.status === 'blocked' ? 'bg-indigo-600' : 'bg-rose-600'
-                            }`}
+                            onClick={() => enviarAvisoVencimentoWhats(p.nome, p.telefone, lic?.data_vencimento)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3.5 py-2.5 rounded-lg font-bold flex items-center gap-1.5 shadow transition"
                           >
-                            {p.status === 'blocked' ? 'Desbloquear' : 'Bloquear'}
+                            <BellRing className="w-4 h-4" /> Cobrar via WhatsApp
                           </button>
                         </div>
                       </div>
@@ -1035,15 +1094,16 @@ export default function App() {
           )}
         </main>
 
+        {/* MODAL EDITAR SALÃO & GERENCIAR LICENÇA */}
         {showEditProModal && editingPro && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4">
+            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4 max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-center border-b pb-3">
-                <h3 className="font-bold text-slate-900 text-lg">Editar Salão</h3>
+                <h3 className="font-bold text-slate-900 text-lg">Editar Salão & Licença</h3>
                 <button onClick={() => setShowEditProModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
               </div>
 
-              <form onSubmit={handleSaveEditedPro} className="space-y-3">
+              <form onSubmit={handleSaveEditedPro} className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Nome do Salão</label>
                   <input type="text" required value={editingPro.nome} onChange={e => setEditingPro({ ...editingPro, nome: e.target.value })} className="w-full border rounded-lg p-2.5 text-sm" />
@@ -1065,6 +1125,67 @@ export default function App() {
                   <input type="text" value={editingPro.endereco || ''} onChange={e => setEditingPro({ ...editingPro, endereco: e.target.value })} className="w-full border rounded-lg p-2.5 text-sm" />
                 </div>
 
+                <div className="border-t pt-3 space-y-3">
+                  <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5 text-indigo-700">
+                    <CreditCard className="w-4 h-4" /> Renovação / Alteração de Licença
+                  </h4>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Ação da Licença</label>
+                    <select 
+                      value={editTipoLicenca} 
+                      onChange={e => setEditTipoLicenca(e.target.value)} 
+                      className="w-full border rounded-lg p-2.5 text-sm font-medium"
+                    >
+                      <option value="manter">Manter Licença Atual</option>
+                      <option value="dias">Adicionar Dias de Acesso (Ex: 30, 60, 365 dias)</option>
+                      <option value="vitalicio">Liberar Acesso Vitalício (Sem Vencimento)</option>
+                    </select>
+                  </div>
+
+                  {editTipoLicenca === 'dias' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Quantidade de Dias Liberados</label>
+                      <input 
+                        type="number" 
+                        required 
+                        value={editDiasAcesso} 
+                        onChange={e => setEditDiasAcesso(e.target.value)} 
+                        placeholder="Ex: 30" 
+                        className="w-full border rounded-lg p-2.5 text-sm" 
+                      />
+                    </div>
+                  )}
+
+                  {editTipoLicenca !== 'manter' && (
+                    <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Valor Pago (R$)</label>
+                        <input 
+                          type="number" 
+                          step="0.01" 
+                          value={editValorLicenca} 
+                          onChange={e => setEditValorLicenca(e.target.value)} 
+                          className="w-full border rounded-lg p-2 text-sm" 
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Forma de Pagamento</label>
+                        <select 
+                          value={editFormaPagto} 
+                          onChange={e => setEditFormaPagto(e.target.value)} 
+                          className="w-full border rounded-lg p-2 text-sm"
+                        >
+                          <option value="Pix">Pix</option>
+                          <option value="Cartão de Crédito">Cartão de Crédito</option>
+                          <option value="Dinheiro">Dinheiro</option>
+                          <option value="Cortesia/Bônus">Cortesia / Bônus</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex justify-end gap-3 pt-3 border-t">
                   <button type="button" onClick={() => setShowEditProModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
                   <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Salvar Alterações</button>
@@ -1074,11 +1195,12 @@ export default function App() {
           </div>
         )}
 
+        {/* MODAL CADASTRAR PROFISSIONAL */}
         {showAddProModal && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4">
+            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4 max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-center border-b pb-3">
-                <h3 className="font-bold text-slate-900 text-lg">Novo Salão & Licença</h3>
+                <h3 className="font-bold text-slate-900 text-lg">Novo Salão & Licença Initial</h3>
                 <button onClick={() => setShowAddProModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
               </div>
 
@@ -1119,8 +1241,43 @@ export default function App() {
                   </div>
                 </div>
 
+                <div className="border-t pt-3 space-y-3">
+                  <h4 className="font-bold text-slate-900 text-sm text-indigo-700">Licença Inicial</h4>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo da Licença Inicial</label>
+                    <select value={tipoLicencaNovo} onChange={e => setTipoLicencaNovo(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm font-medium">
+                      <option value="dias">Dias Liberados (Ex: 30 Dias)</option>
+                      <option value="vitalicio">Acesso Vitalício (Sem Expiração)</option>
+                    </select>
+                  </div>
+
+                  {tipoLicencaNovo === 'dias' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Dias de Acesso</label>
+                      <input type="number" required value={diasAcesso} onChange={e => setDiasAcesso(e.target.value)} placeholder="Ex: 30" className="w-full border rounded-lg p-2.5 text-sm" />
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Valor Cobrado (R$)</label>
+                      <input type="number" step="0.01" value={planoValor} onChange={e => setPlanoValor(e.target.value)} className="w-full border rounded-lg p-2 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Pagamento</label>
+                      <select value={formaPagamento} onChange={e => setFormaPagamento(e.target.value)} className="w-full border rounded-lg p-2 text-sm">
+                        <option value="Pix">Pix</option>
+                        <option value="Cartão de Crédito">Cartão de Crédito</option>
+                        <option value="Dinheiro">Dinheiro</option>
+                        <option value="Cortesia/Bônus">Cortesia / Bônus</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
                 <div>
-                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer pt-2">
                     <input type="checkbox" checked={newProLinkAtivo} onChange={e => setNewProLinkAtivo(e.target.checked)} className="rounded text-indigo-600" />
                     Habilitar Agendamento por Link para este salão
                   </label>
