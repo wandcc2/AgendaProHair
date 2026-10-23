@@ -1,19 +1,45 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Calendar, Users, Scissors, Clock, DollarSign, Settings, MessageSquare, 
-  Palette, LogOut, CalendarPlus, ChevronLeft, ChevronRight, UserPlus 
+  Palette, LogOut, CalendarPlus, ChevronLeft, ChevronRight, UserPlus, Inbox,
+  Plus, Check, X, Phone, MapPin
 } from 'lucide-react';
+import { supabase } from '../services/supabaseClient';
 
 const DIAS_NOME = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
 
 export default function SalaoDashboard({
   userProfile, proTab, setProTab, proAppointments, proClients, proServices,
   currentWeekStart, setCurrentWeekStart, weeklySchedule, setWeeklySchedule,
-  salvarHorarioSemana, configSuccess, onLogout, onOpenColorModal,
-  setShowAddApptModal, setShowAddClientModal, setShowServiceModal
+  salvarHorarioSemana, configSuccess, onLogout, onOpenColorModal, loadAppData
 }) {
   const corTopo = userProfile?.cor_topo || userProfile?.cor_primaria || '#4f46e5';
   const corSidebar = userProfile?.cor_sidebar || '#0f172a';
+  const corTextoSidebar = userProfile?.cor_texto_sidebar || '#cbd5e1';
+
+  // Modais Locais
+  const [showAddApptModal, setShowAddApptModal] = useState(false);
+  const [showAddClientModal, setShowAddClientModal] = useState(false);
+  const [showServiceModal, setShowServiceModal] = useState(false);
+
+  // Estados dos Formulários
+  const [apptClientType, setApptClientType] = useState('existing'); // 'existing' | 'new'
+  const [selectedClientId, setSelectedClientId] = useState('');
+  const [manualClientName, setManualClientName] = useState('');
+  const [manualClientPhone, setManualClientPhone] = useState('');
+  const [manualServiceId, setManualServiceId] = useState('');
+  const [manualDate, setManualDate] = useState('');
+  const [manualTime, setManualTime] = useState('');
+
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientPhone, setNewClientPhone] = useState('');
+  const [newClientEndereco, setNewClientEndereco] = useState('');
+
+  const [serviceName, setServiceName] = useState('');
+  const [servicePrice, setServicePrice] = useState('');
+  const [serviceDuration, setServiceDuration] = useState('30');
+
+  const pendentes = proAppointments.filter(a => a.status === 'pendente');
 
   const diasDaSemana = Array.from({ length: 7 }).map((_, idx) => {
     const d = new Date(currentWeekStart);
@@ -25,9 +51,94 @@ export default function SalaoDashboard({
     .filter(a => a.status === 'confirmado')
     .reduce((acc, a) => acc + (parseFloat(a.servicos?.preco) || 0), 0);
 
+  // Handlers
+  const handleUpdateApptStatus = async (apptId, newStatus) => {
+    const { error } = await supabase.from('agendamentos').update({ status: newStatus }).eq('id', apptId);
+    if (!error) loadAppData();
+  };
+
+  const handleAddClient = async (e) => {
+    e.preventDefault();
+    try {
+      const { error } = await supabase.from('clientes').insert([{
+        nome: newClientName,
+        telefone: newClientPhone,
+        endereco: newClientEndereco,
+        profissional_id: userProfile.id
+      }]);
+
+      if (error) throw error;
+
+      setNewClientName('');
+      setNewClientPhone('');
+      setNewClientEndereco('');
+      setShowAddClientModal(false);
+      await loadAppData();
+    } catch (err) {
+      alert('Erro ao cadastrar cliente: ' + err.message);
+    }
+  };
+
+  const handleAddService = async (e) => {
+    e.preventDefault();
+    try {
+      const { error } = await supabase.from('servicos').insert([{
+        nome: serviceName,
+        preco: parseFloat(servicePrice),
+        duracao_minutos: parseInt(serviceDuration),
+        profissional_id: userProfile.id
+      }]);
+
+      if (error) throw error;
+
+      setServiceName('');
+      setServicePrice('');
+      setServiceDuration('30');
+      setShowServiceModal(false);
+      await loadAppData();
+    } catch (err) {
+      alert('Erro ao cadastrar serviço: ' + err.message);
+    }
+  };
+
+  const handleAddManualAppointment = async (e) => {
+    e.preventDefault();
+    try {
+      let finalClientId = selectedClientId;
+
+      if (apptClientType === 'new') {
+        const { data: newCli, error: cliErr } = await supabase.from('clientes').insert([{
+          nome: manualClientName,
+          telefone: manualClientPhone,
+          profissional_id: userProfile.id
+        }]).select().single();
+
+        if (cliErr) throw cliErr;
+        finalClientId = newCli.id;
+      }
+
+      const { error: apptErr } = await supabase.from('agendamentos').insert([{
+        cliente_id: finalClientId,
+        profissional_id: userProfile.id,
+        servico_id: manualServiceId,
+        data: manualDate,
+        horario: manualTime,
+        status: 'confirmado'
+      }]);
+
+      if (apptErr) throw apptErr;
+
+      setShowAddApptModal(false);
+      await loadAppData();
+    } catch (err) {
+      alert('Erro ao agendar: ' + err.message);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row font-sans">
-      <aside style={{ backgroundColor: corSidebar }} className="w-full md:w-64 text-slate-100 flex flex-col border-r border-slate-800/50 shadow-xl">
+      {/* SIDEBAR */}
+      <aside style={{ backgroundColor: corSidebar }} className="w-full md:w-64 flex flex-col border-r border-slate-800/50 shadow-xl">
         <div className="p-6 border-b border-slate-800/40 flex items-center gap-3">
           {userProfile?.logo_url ? (
             <img src={userProfile.logo_url} alt="Logo Salão" className="w-12 h-12 rounded-xl object-cover border border-slate-700 shadow" />
@@ -37,45 +148,65 @@ export default function SalaoDashboard({
             </div>
           )}
           <div>
-            <h1 className="font-bold text-base leading-tight truncate max-w-[130px]">{userProfile?.nome}</h1>
-            <p className="text-xs text-slate-400">Painel de Gestão</p>
+            <h1 style={{ color: corTextoSidebar }} className="font-bold text-base leading-tight truncate max-w-[130px]">{userProfile?.nome}</h1>
+            <p className="text-xs opacity-75" style={{ color: corTextoSidebar }}>Painel de Gestão</p>
           </div>
         </div>
 
         <nav className="flex-1 p-4 space-y-1.5">
-          <button onClick={() => setProTab('agenda')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${proTab === 'agenda' ? 'bg-indigo-600/90 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800/60'}`}>
+          <button onClick={() => setProTab('agenda')} style={{ color: corTextoSidebar }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${proTab === 'agenda' ? 'bg-indigo-600/90 text-white shadow-md' : 'hover:bg-slate-800/60'}`}>
             <Calendar className="w-5 h-5 text-pink-400" /> Agenda
           </button>
-          <button onClick={() => setProTab('clientes')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${proTab === 'clientes' ? 'bg-indigo-600/90 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800/60'}`}>
+
+          <button onClick={() => setProTab('solicitacoes')} style={{ color: corTextoSidebar }} className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-semibold transition ${proTab === 'solicitacoes' ? 'bg-indigo-600/90 text-white shadow-md' : 'hover:bg-slate-800/60'}`}>
+            <div className="flex items-center gap-3"><Inbox className="w-5 h-5 text-amber-400" /> Solicitações</div>
+            {pendentes.length > 0 && (
+              <span className="bg-amber-500 text-slate-900 font-bold text-xs px-2 py-0.5 rounded-full">{pendentes.length}</span>
+            )}
+          </button>
+
+          <button onClick={() => setProTab('clientes')} style={{ color: corTextoSidebar }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${proTab === 'clientes' ? 'bg-indigo-600/90 text-white shadow-md' : 'hover:bg-slate-800/60'}`}>
             <Users className="w-5 h-5 text-indigo-300" /> Clientes
           </button>
-          <button onClick={() => setProTab('servicos')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${proTab === 'servicos' ? 'bg-indigo-600/90 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800/60'}`}>
+
+          <button onClick={() => setProTab('servicos')} style={{ color: corTextoSidebar }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${proTab === 'servicos' ? 'bg-indigo-600/90 text-white shadow-md' : 'hover:bg-slate-800/60'}`}>
             <Scissors className="w-5 h-5 text-purple-300" /> Serviços
           </button>
-          <button onClick={() => setProTab('horarios')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${proTab === 'horarios' ? 'bg-indigo-600/90 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800/60'}`}>
+
+          {/* NOVO MENU: AGENDAMENTO MANUAL */}
+          <button onClick={() => setShowAddApptModal(true)} style={{ color: corTextoSidebar }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition hover:bg-slate-800/60 text-emerald-400">
+            <CalendarPlus className="w-5 h-5 text-emerald-400" /> Agendamento Manual
+          </button>
+
+          <button onClick={() => setProTab('horarios')} style={{ color: corTextoSidebar }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${proTab === 'horarios' ? 'bg-indigo-600/90 text-white shadow-md' : 'hover:bg-slate-800/60'}`}>
             <Clock className="w-5 h-5 text-cyan-300" /> Horários
           </button>
-          <button onClick={() => setProTab('faturamento')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${proTab === 'faturamento' ? 'bg-indigo-600/90 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800/60'}`}>
+
+          <button onClick={() => setProTab('faturamento')} style={{ color: corTextoSidebar }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${proTab === 'faturamento' ? 'bg-indigo-600/90 text-white shadow-md' : 'hover:bg-slate-800/60'}`}>
             <DollarSign className="w-5 h-5 text-emerald-400" /> Faturamento
           </button>
-          <button onClick={() => setProTab('ajustes')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${proTab === 'ajustes' ? 'bg-indigo-600/90 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800/60'}`}>
+
+          <button onClick={() => setProTab('ajustes')} style={{ color: corTextoSidebar }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${proTab === 'ajustes' ? 'bg-indigo-600/90 text-white shadow-md' : 'hover:bg-slate-800/60'}`}>
             <Settings className="w-5 h-5 text-slate-400" /> Ajustes
           </button>
-          <button onClick={() => setProTab('whatsapp')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${proTab === 'whatsapp' ? 'bg-indigo-600/90 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800/60'}`}>
+
+          <button onClick={() => setProTab('whatsapp')} style={{ color: corTextoSidebar }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition ${proTab === 'whatsapp' ? 'bg-indigo-600/90 text-white shadow-md' : 'hover:bg-slate-800/60'}`}>
             <MessageSquare className="w-4 h-4 text-emerald-400" /> WhatsApp
           </button>
         </nav>
 
         <div className="p-4 border-t border-slate-800/60 space-y-2">
-          <button onClick={onOpenColorModal} className="w-full flex items-center justify-center gap-2 bg-slate-800/80 hover:bg-slate-700 text-slate-200 py-2.5 rounded-lg text-xs font-semibold transition border border-slate-700">
+          <button onClick={onOpenColorModal} style={{ color: corTextoSidebar }} className="w-full flex items-center justify-center gap-2 bg-slate-800/80 hover:bg-slate-700 py-2.5 rounded-lg text-xs font-semibold transition border border-slate-700">
             <Palette className="w-4 h-4 text-amber-400" /> Personalizar Cores
           </button>
-          <button onClick={onLogout} className="w-full flex items-center justify-center gap-2 bg-slate-800/80 hover:bg-rose-900/50 text-slate-300 hover:text-rose-200 py-2.5 rounded-lg text-xs font-semibold transition border border-slate-700">
+
+          <button onClick={onLogout} style={{ color: corTextoSidebar }} className="w-full flex items-center justify-center gap-2 bg-slate-800/80 hover:bg-rose-900/50 hover:text-rose-200 py-2.5 rounded-lg text-xs font-semibold transition border border-slate-700">
             <LogOut className="w-4 h-4" /> Sair
           </button>
         </div>
       </aside>
 
+      {/* MAIN CONTENT */}
       <main className="flex-1 p-8 overflow-y-auto">
         <div style={{ backgroundColor: corTopo }} className="text-white p-6 rounded-2xl shadow-lg mb-8 flex justify-between items-center transition-all">
           <div className="flex items-center gap-4">
@@ -87,11 +218,9 @@ export default function SalaoDashboard({
               <p className="text-xs text-white/80">Painel Administrativo do Salão</p>
             </div>
           </div>
-          <button onClick={() => setShowAddApptModal(true)} className="bg-white text-slate-900 font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow hover:bg-slate-100 transition">
-            <CalendarPlus className="w-4 h-4 text-indigo-600" /> Novo Agendamento
-          </button>
         </div>
 
+        {/* AGENDA SEMANAL */}
         {proTab === 'agenda' && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl border shadow-sm">
@@ -101,7 +230,7 @@ export default function SalaoDashboard({
                   prev.setDate(prev.getDate() - 7);
                   setCurrentWeekStart(prev);
                 }} className="p-2 border rounded-xl hover:bg-slate-50"><ChevronLeft className="w-5 h-5 text-slate-600" /></button>
-                
+
                 <h3 className="font-extrabold text-lg text-slate-900">
                   {diasDaSemana[0].toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
                 </h3>
@@ -151,6 +280,35 @@ export default function SalaoDashboard({
           </div>
         )}
 
+        {/* SOLICITAÇÕES PENDENTES */}
+        {proTab === 'solicitacoes' && (
+          <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
+            <h3 className="font-bold text-slate-900 text-lg border-b pb-3">Aprovação de Agendamentos (Link Público)</h3>
+            {pendentes.length === 0 ? (
+              <p className="text-slate-500 text-sm">Nenhuma solicitação pendente no momento.</p>
+            ) : (
+              pendentes.map(a => (
+                <div key={a.id} className="p-4 border-2 border-amber-200 bg-amber-50/40 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                  <div>
+                    <h4 className="font-bold text-slate-900">{a.clientes?.nome} ({a.clientes?.telefone})</h4>
+                    <p className="text-xs text-slate-600 mt-0.5">{a.servicos?.nome} — {a.data?.split('-').reverse().join('/')} às {a.horario}</p>
+                    <span className="inline-block mt-2 text-[10px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded font-bold">Pagamento: {a.forma_pagamento || 'No Local'}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => handleUpdateApptStatus(a.id, 'confirmado')} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow flex items-center gap-1">
+                      <Check className="w-4 h-4" /> Aprovar
+                    </button>
+                    <button onClick={() => handleUpdateApptStatus(a.id, 'cancelado')} className="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg text-xs font-bold shadow flex items-center gap-1">
+                      <X className="w-4 h-4" /> Recusar
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* CLIENTES */}
         {proTab === 'clientes' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -174,26 +332,32 @@ export default function SalaoDashboard({
           </div>
         )}
 
+        {/* SERVIÇOS */}
         {proTab === 'servicos' && (
           <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="font-bold text-slate-900 text-lg">Serviços e Produtos</h3>
-              <button onClick={() => setShowServiceModal(true)} className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-bold">+ Novo Serviço</button>
+              <button onClick={() => setShowServiceModal(true)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow flex items-center gap-1">
+                <Plus className="w-4 h-4" /> Novo Serviço
+              </button>
             </div>
-            {proServices.map(s => (
-              <div key={s.id} className="p-3 border rounded-lg flex justify-between items-center text-xs">
-                <div>
-                  <span className="font-bold text-slate-900">{s.nome}</span>
-                  <p className="text-slate-500">R$ {parseFloat(s.preco).toFixed(2)} — {s.duracao_minutos || 30} min</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {proServices.map(s => (
+                <div key={s.id} className="p-4 border rounded-xl bg-slate-50 flex justify-between items-center text-xs">
+                  <div>
+                    <span className="font-bold text-slate-900 text-sm block">{s.nome}</span>
+                    <p className="text-slate-500">R$ {parseFloat(s.preco).toFixed(2)} • {s.duracao_minutos || 30} min</p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
 
+        {/* HORÁRIOS */}
         {proTab === 'horarios' && (
           <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
-            <h3 className="font-bold text-slate-900 text-lg border-b pb-3">Ajuste de Horários & Pausa para Almoço</h3>
+            <h3 className="font-bold text-slate-900 text-lg border-b pb-3">Ajuste de Horários de Funcionamento</h3>
             {configSuccess && <div className="p-3 bg-emerald-50 text-emerald-700 text-xs rounded-lg border">{configSuccess}</div>}
 
             <form onSubmit={salvarHorarioSemana} className="space-y-4">
@@ -266,6 +430,7 @@ export default function SalaoDashboard({
           </div>
         )}
 
+        {/* FATURAMENTO */}
         {proTab === 'faturamento' && (
           <div className="space-y-6">
             <h3 className="font-bold text-slate-900 text-xl">Faturamento dos Atendimentos</h3>
@@ -279,6 +444,7 @@ export default function SalaoDashboard({
           </div>
         )}
 
+        {/* AJUSTES */}
         {proTab === 'ajustes' && (
           <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
             <h3 className="font-bold text-slate-900 text-lg border-b pb-3">Ajustes do Salão e Link de Agendamento</h3>
@@ -292,6 +458,7 @@ export default function SalaoDashboard({
           </div>
         )}
 
+        {/* WHATSAPP */}
         {proTab === 'whatsapp' && (
           <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
             <h3 className="font-bold text-slate-900 text-lg border-b pb-3">WhatsApp & Notificações</h3>
@@ -299,6 +466,120 @@ export default function SalaoDashboard({
           </div>
         )}
       </main>
+
+      {/* MODAL CADASTRAR CLIENTE */}
+      {showAddClientModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-bold text-slate-900 text-lg">Nova Cliente</h3>
+              <button onClick={() => setShowAddClientModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
+            </div>
+
+            <form onSubmit={handleAddClient} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nome Completo *</label>
+                <input type="text" required value={newClientName} onChange={e => setNewClientName(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp *</label>
+                <input type="tel" required value={newClientPhone} onChange={e => setNewClientPhone(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Endereço (Opcional)</label>
+                <input type="text" value={newClientEndereco} onChange={e => setNewClientEndereco(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2 border-t">
+                <button type="button" onClick={() => setShowAddClientModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
+                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-lg shadow">Salvar Cliente</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL NOVO SERVIÇO */}
+      {showServiceModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-bold text-slate-900 text-lg">Novo Serviço</h3>
+              <button onClick={() => setShowServiceModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
+            </div>
+            <form onSubmit={handleAddService} className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nome do Serviço *</label>
+                <input type="text" required placeholder="Ex: Corte + Escova" value={serviceName} onChange={e => setServiceName(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Preço (R$) *</label>
+                <input type="number" step="0.01" required placeholder="50.00" value={servicePrice} onChange={e => setServicePrice(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Duração (Minutos)</label>
+                <input type="number" value={serviceDuration} onChange={e => setServiceDuration(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+              </div>
+              <button type="submit" className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-bold text-xs shadow">Salvar Serviço</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL AGENDAMENTO MANUAL */}
+      {showAddApptModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-bold text-slate-900 text-lg">Agendamento Manual</h3>
+              <button onClick={() => setShowAddApptModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
+            </div>
+
+            <form onSubmit={handleAddManualAppointment} className="space-y-3">
+              <div className="flex border rounded-lg overflow-hidden text-xs">
+                <button type="button" onClick={() => setApptClientType('existing')} className={`flex-1 py-2 font-bold ${apptClientType === 'existing' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>Cliente Cadastrada</button>
+                <button type="button" onClick={() => setApptClientType('new')} className={`flex-1 py-2 font-bold ${apptClientType === 'new' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>Nova Cliente</button>
+              </div>
+
+              {apptClientType === 'existing' ? (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Selecione a Cliente *</label>
+                  <select required value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm">
+                    <option value="">Selecione...</option>
+                    {proClients.map(c => <option key={c.id} value={c.id}>{c.nome} ({c.telefone})</option>)}
+                  </select>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <input type="text" required placeholder="Nome Completo da Cliente" value={manualClientName} onChange={e => setManualClientName(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+                  <input type="tel" required placeholder="WhatsApp" value={manualClientPhone} onChange={e => setManualClientPhone(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Serviço *</label>
+                <select required value={manualServiceId} onChange={e => setManualServiceId(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm">
+                  <option value="">Selecione o Serviço...</option>
+                  {proServices.map(s => <option key={s.id} value={s.id}>{s.nome} — R$ {parseFloat(s.preco).toFixed(2)}</option>)}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Data *</label>
+                  <input type="date" required value={manualDate} onChange={e => setManualDate(e.target.value)} className="w-full border rounded-lg p-2 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Horário *</label>
+                  <input type="time" required value={manualTime} onChange={e => setManualTime(e.target.value)} className="w-full border rounded-lg p-2 text-sm" />
+                </div>
+              </div>
+
+              <button type="submit" className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-bold text-xs shadow mt-2">Agendar Atendimento</button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
