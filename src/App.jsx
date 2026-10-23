@@ -39,7 +39,13 @@ import {
   ToggleRight,
   Inbox,
   AlertCircle,
-  Infinity as InfinityIcon
+  ChevronLeft,
+  ChevronRight,
+  Palette,
+  Image as ImageIcon,
+  TrendingUp,
+  PieChart,
+  UserCheck
 } from 'lucide-react';
 
 const SUPABASE_URL = 'https://ujdaesnmqhkzefqdwygk.supabase.co';
@@ -72,8 +78,8 @@ export default function App() {
   const queryParams = new URLSearchParams(window.location.search);
   const publicProId = queryParams.get('pro');
 
-  // Master
-  const [activeTab, setActiveTab] = useState('master_profs'); // master_profs | master_vencimentos
+  // Master State
+  const [activeTab, setActiveTab] = useState('master_profs'); // master_profs | master_vencimentos | master_financeiro
   const [professionals, setProfessionals] = useState([]);
   const [licencas, setLicencas] = useState([]);
   const [expandedProId, setExpandedProId] = useState(null);
@@ -86,9 +92,12 @@ export default function App() {
   const [newProEndereco, setNewProEndereco] = useState('');
   const [newProNumero, setNewProNumero] = useState('');
   const [newProPassword, setNewProPassword] = useState('');
+  const [newProLogo, setNewProLogo] = useState('');
+  const [newProCor, setNewProCor] = useState('#4f46e5');
   const [newProLinkAtivo, setNewProLinkAtivo] = useState(true);
-  const [tipoLicencaNovo, setTipoLicencaNovo] = useState('dias'); // 'dias' | 'vitalicio'
+  const [tipoLicencaNovo, setTipoLicencaNovo] = useState('dias'); // 'dias' | 'data' | 'vitalicio'
   const [diasAcesso, setDiasAcesso] = useState(30);
+  const [dataEspecificaVenc, setDataEspecificaVenc] = useState('');
   const [planoValor, setPlanoValor] = useState('50.00');
   const [formaPagamento, setFormaPagamento] = useState('Pix');
   const [proModalError, setProModalError] = useState('');
@@ -97,26 +106,38 @@ export default function App() {
   // Modal Editar Salão / Licenças (Master)
   const [showEditProModal, setShowEditProModal] = useState(false);
   const [editingPro, setEditingPro] = useState(null);
-  const [editTipoLicenca, setEditTipoLicenca] = useState('manter'); // 'manter' | 'dias' | 'vitalicio'
+  const [editTipoLicenca, setEditTipoLicenca] = useState('manter'); 
   const [editDiasAcesso, setEditDiasAcesso] = useState(30);
+  const [editDataEspecifica, setEditDataEspecifica] = useState('');
   const [editValorLicenca, setEditValorLicenca] = useState('50.00');
   const [editFormaPagto, setEditFormaPagto] = useState('Pix');
 
-  // Profissional / Cabeleireira
-  const [proTab, setProTab] = useState('agenda');
+  // Profissional / Salão
+  const [proTab, setProTab] = useState('dashboard_agenda'); // dashboard_agenda | agenda | aprovacao | servicos | clientes | config
   const [proClients, setProClients] = useState([]);
   const [proServices, setProServices] = useState([]);
   const [proAppointments, setProAppointments] = useState([]);
   const [expandedServiceId, setExpandedServiceId] = useState(null);
 
-  // Configuração de Horários da Semana e Folgas
+  // Dashboard Semanal
+  const [currentWeekStart, setCurrentWeekStart] = useState(() => {
+    const d = new Date();
+    const day = d.getDay();
+    const diff = d.getDate() - day; 
+    return new Date(d.setDate(diff));
+  });
+
+  // Configuração de Horários da Semana (com Almoço)
   const [weeklySchedule, setWeeklySchedule] = useState(
     DIAS_NOME.map((nome, idx) => ({
       dia_semana: idx,
       nome,
       ativo: idx >= 1 && idx <= 6,
       hora_inicio: '08:00',
-      hora_fim: '18:00'
+      hora_fim: '18:00',
+      com_almoco: false,
+      hora_inicio_almoco: '12:00',
+      hora_fim_almoco: '13:00'
     }))
   );
   const [offDays, setOffDays] = useState([]);
@@ -124,7 +145,7 @@ export default function App() {
   const [newOffMotivo, setNewOffMotivo] = useState('');
   const [configSuccess, setConfigSuccess] = useState('');
 
-  // Modal Criar/Editar Serviço
+  // Modal Serviço
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [editingServiceId, setEditingServiceId] = useState(null);
   const [serviceName, setServiceName] = useState('');
@@ -133,10 +154,13 @@ export default function App() {
   const [serviceDuration, setServiceDuration] = useState('30');
   const [serviceError, setServiceError] = useState('');
 
-  // Modal Novo Cliente
+  // Modal Novo Cliente (Com campos estendidos)
   const [showAddClientModal, setShowAddClientModal] = useState(false);
   const [newClientName, setNewClientName] = useState('');
   const [newClientPhone, setNewClientPhone] = useState('');
+  const [newClientEndereco, setNewClientEndereco] = useState('');
+  const [newClientPrefPro, setNewClientPrefPro] = useState('');
+  const [newClientObs, setNewClientObs] = useState('');
   const [clientError, setClientError] = useState('');
 
   // Modal Agendamento Manual
@@ -236,7 +260,15 @@ export default function App() {
       if (hs && hs.length > 0) {
         setWeeklySchedule(prev => prev.map(item => {
           const enc = hs.find(h => h.dia_semana === item.dia_semana);
-          return enc ? { ...item, ativo: enc.ativo, hora_inicio: enc.hora_inicio.substring(0,5), hora_fim: enc.hora_fim.substring(0,5) } : item;
+          return enc ? { 
+            ...item, 
+            ativo: enc.ativo, 
+            hora_inicio: enc.hora_inicio?.substring(0,5) || '08:00', 
+            hora_fim: enc.hora_fim?.substring(0,5) || '18:00',
+            com_almoco: enc.com_almoco || false,
+            hora_inicio_almoco: enc.hora_inicio_almoco?.substring(0,5) || '12:00',
+            hora_fim_almoco: enc.hora_fim_almoco?.substring(0,5) || '13:00'
+          } : item;
         }));
       }
 
@@ -249,352 +281,7 @@ export default function App() {
     }
   };
 
-  // Funções Master
-  const toggleAgendamentoLink = async (proId, currentStatus) => {
-    const { error } = await supabase.from('perfis').update({
-      agendamento_link_ativo: !currentStatus
-    }).eq('id', proId);
-
-    if (!error) loadAppData();
-    else alert('Erro ao alterar permissão de link.');
-  };
-
-  const toggleStatusProfissional = async (proId, currentStatus) => {
-    const newStatus = currentStatus === 'blocked' ? 'active' : 'blocked';
-    const { error } = await supabase.from('perfis').update({ status: newStatus }).eq('id', proId);
-    if (!error) loadAppData();
-    else alert('Erro ao alterar status.');
-  };
-
-  const enviarAvisoVencimentoWhats = (nome, telefone, dataVenc) => {
-    const numLimpo = (telefone || '').replace(/\D/g, '');
-    if (!numLimpo) {
-      alert('Este salão não tem WhatsApp cadastrado.');
-      return;
-    }
-    const partes = (dataVenc || '').split('-');
-    const dataFmt = partes.length === 3 ? `${partes[2]}/${partes[1]}/${partes[0]}` : dataVenc;
-    const msg = `Olá, *${nome}*! %0A%0ASua licença do sistema *AgendaPro Hair* vence em *${dataFmt}*. %0A%0APara evitar a interrupção do serviço e do link de agendamentos, por favor realize a renovação do seu plano. %0A%0AQualquer dúvida estamos à disposição! 😊`;
-
-    window.open(`https://wa.me/55${numLimpo}?text=${msg}`, '_blank');
-  };
-
-  const handleOpenEditPro = (pro) => {
-    setEditingPro(pro);
-    setEditTipoLicenca('manter');
-    setEditDiasAcesso(30);
-    setEditValorLicenca('50.00');
-    setEditFormaPagto('Pix');
-    setShowEditProModal(true);
-  };
-
-  const handleSaveEditedPro = async (e) => {
-    e.preventDefault();
-    try {
-      // 1. Atualizar dados do perfil do salão
-      const { error: proErr } = await supabase.from('perfis').update({
-        nome: editingPro.nome,
-        telefone: editingPro.telefone,
-        endereco: editingPro.endereco,
-        numero: editingPro.numero,
-        agendamento_link_ativo: editingPro.agendamento_link_ativo
-      }).eq('id', editingPro.id);
-
-      if (proErr) throw proErr;
-
-      // 2. Se for alterar a licença do salão
-      if (editTipoLicenca !== 'manter') {
-        let dataVenc = null;
-        let planoNome = 'Vitalício';
-
-        if (editTipoLicenca === 'dias') {
-          const hoje = new Date();
-          hoje.setDate(hoje.getDate() + parseInt(editDiasAcesso));
-          dataVenc = hoje.toISOString().split('T')[0];
-          planoNome = `${editDiasAcesso} Dias`;
-        }
-
-        // Criar ou atualizar licença existente
-        const { error: licErr } = await supabase.from('licencas').insert([{
-          profissional_id: editingPro.id,
-          plano: planoNome,
-          valor: parseFloat(editValorLicenca || 0),
-          forma_pagamento: editFormaPagto,
-          data_pagamento: new Date().toISOString().split('T')[0],
-          data_vencimento: dataVenc,
-          status: 'active'
-        }]);
-
-        if (licErr) throw licErr;
-      }
-
-      setShowEditProModal(false);
-      await loadAppData();
-      alert('Salão e licença atualizados com sucesso!');
-    } catch (err) {
-      alert('Erro ao atualizar salão: ' + err.message);
-    }
-  };
-
-  const handleCreateProfessional = async (e) => {
-    e.preventDefault();
-    setProModalError('');
-    setProModalSuccess('');
-
-    try {
-      const { data: authData, error: authError } = await supabaseAdmin.auth.signUp({
-        email: newProEmail,
-        password: newProPassword,
-        options: { data: { nome: newProName } }
-      });
-
-      if (authError) throw authError;
-
-      if (authData?.user) {
-        await supabase.from('perfis').insert([{
-          id: authData.user.id,
-          nome: newProName,
-          email: newProEmail,
-          telefone: newProPhone,
-          endereco: newProEndereco,
-          numero: newProNumero,
-          agendamento_link_ativo: newProLinkAtivo,
-          role: 'professional',
-          status: 'active'
-        }]);
-
-        let dataVenc = null;
-        let planoNome = 'Vitalício';
-
-        if (tipoLicencaNovo === 'dias') {
-          const dt = new Date();
-          dt.setDate(dt.getDate() + parseInt(diasAcesso));
-          dataVenc = dt.toISOString().split('T')[0];
-          planoNome = `${diasAcesso} Dias`;
-        }
-
-        await supabase.from('licencas').insert([{
-          profissional_id: authData.user.id,
-          plano: planoNome,
-          valor: parseFloat(planoValor || 0),
-          forma_pagamento: formaPagamento,
-          data_pagamento: new Date().toISOString().split('T')[0],
-          data_vencimento: dataVenc,
-          status: 'active'
-        }]);
-
-        setProModalSuccess('Profissional cadastrado com sucesso!');
-        setNewProName('');
-        setNewProEmail('');
-        setNewProPhone('');
-        setNewProEndereco('');
-        setNewProNumero('');
-        setNewProPassword('');
-        
-        await loadAppData();
-        setTimeout(() => setShowAddProModal(false), 1200);
-      }
-    } catch (err) {
-      setProModalError(err.message || 'Erro ao cadastrar profissional.');
-    }
-  };
-
-  // Funções do Salão
-  const handleWeeklyScheduleChange = (index, field, value) => {
-    const updated = [...weeklySchedule];
-    updated[index][field] = value;
-    setWeeklySchedule(updated);
-  };
-
-  const salvarHorarioSemana = async (e) => {
-    e.preventDefault();
-    setConfigSuccess('');
-
-    try {
-      for (const item of weeklySchedule) {
-        const { error } = await supabase.from('horarios_semana').upsert({
-          profissional_id: userProfile.id,
-          dia_semana: item.dia_semana,
-          ativo: item.ativo,
-          hora_inicio: item.hora_inicio,
-          hora_fim: item.hora_fim
-        }, { onConflict: 'profissional_id,dia_semana' });
-
-        if (error) throw error;
-      }
-
-      setConfigSuccess('Horários de atendimento salvos com sucesso!');
-      setTimeout(() => setConfigSuccess(''), 3000);
-    } catch (err) {
-      alert('Erro ao salvar horários: ' + err.message);
-    }
-  };
-
-  const handleAddOffDay = async (e) => {
-    e.preventDefault();
-    if (!newOffDate) return;
-
-    try {
-      const { error } = await supabase.from('folgas_feriados').insert([{
-        profissional_id: userProfile.id,
-        data: newOffDate,
-        motivo: newOffMotivo || 'Folga / Feriado'
-      }]);
-
-      if (error) throw error;
-
-      setNewOffDate('');
-      setNewOffMotivo('');
-      loadAppData();
-    } catch (err) {
-      alert('Erro ao adicionar folga: ' + err.message);
-    }
-  };
-
-  const handleDeleteOffDay = async (id) => {
-    if (window.confirm('Deseja remover esta folga/feriado?')) {
-      await supabase.from('folgas_feriados').delete().eq('id', id);
-      loadAppData();
-    }
-  };
-
-  const handleOpenAddServiceModal = () => {
-    setEditingServiceId(null);
-    setServiceName('');
-    setServicePrice('');
-    setServiceDesc('');
-    setServiceDuration('30');
-    setServiceError('');
-    setShowServiceModal(true);
-  };
-
-  const handleOpenEditServiceModal = (srv) => {
-    setEditingServiceId(srv.id);
-    setServiceName(srv.nome);
-    setServicePrice(srv.preco);
-    setServiceDesc(srv.descricao || '');
-    setServiceDuration(srv.duracao_minutos || '30');
-    setServiceError('');
-    setShowServiceModal(true);
-  };
-
-  const handleSaveService = async (e) => {
-    e.preventDefault();
-    setServiceError('');
-
-    try {
-      if (editingServiceId) {
-        const { error } = await supabase.from('servicos').update({
-          nome: serviceName,
-          preco: parseFloat(servicePrice),
-          descricao: serviceDesc,
-          duracao_minutos: parseInt(serviceDuration)
-        }).eq('id', editingServiceId);
-
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('servicos').insert([{
-          nome: serviceName,
-          preco: parseFloat(servicePrice),
-          descricao: serviceDesc,
-          duracao_minutos: parseInt(serviceDuration),
-          profissional_id: userProfile.id
-        }]);
-
-        if (error) throw error;
-      }
-
-      setShowServiceModal(false);
-      setServiceName('');
-      setServicePrice('');
-      setServiceDesc('');
-      setServiceDuration('30');
-      setEditingServiceId(null);
-      await loadAppData();
-    } catch (err) {
-      setServiceError(err.message || 'Erro ao salvar serviço.');
-    }
-  };
-
-  const handleDeleteService = async (serviceId) => {
-    if (window.confirm('Deseja realmente remover este serviço/produto?')) {
-      await supabase.from('servicos').delete().eq('id', serviceId);
-      loadAppData();
-    }
-  };
-
-  const handleUpdateApptStatus = async (apptId, newStatus) => {
-    const { error } = await supabase.from('agendamentos').update({ status: newStatus }).eq('id', apptId);
-    if (!error) {
-      loadAppData();
-    } else {
-      alert('Erro ao atualizar status do agendamento.');
-    }
-  };
-
-  const handleAddClient = async (e) => {
-    e.preventDefault();
-    setClientError('');
-
-    try {
-      const { error } = await supabase.from('clientes').insert([{
-        nome: newClientName,
-        telefone: newClientPhone,
-        profissional_id: userProfile.id
-      }]);
-
-      if (error) throw error;
-
-      setShowAddClientModal(false);
-      setNewClientName('');
-      setNewClientPhone('');
-      await loadAppData();
-    } catch (err) {
-      setClientError(err.message || 'Erro ao cadastrar cliente.');
-    }
-  };
-
-  const handleAddManualAppointment = async (e) => {
-    e.preventDefault();
-    try {
-      let finalClientId = selectedClientId;
-
-      if (apptClientType === 'new') {
-        const { data: newCli, error: cliErr } = await supabase.from('clientes').insert([{
-          nome: manualClientName,
-          telefone: manualClientPhone,
-          profissional_id: userProfile.id
-        }]).select().single();
-
-        if (cliErr) throw cliErr;
-        finalClientId = newCli.id;
-      }
-
-      const { error: apptErr } = await supabase.from('agendamentos').insert([{
-        cliente_id: finalClientId,
-        profissional_id: userProfile.id,
-        servico_id: manualServiceId,
-        data: manualDate,
-        horario: manualTime,
-        status: 'confirmado'
-      }]);
-
-      if (apptErr) throw apptErr;
-
-      setShowAddApptModal(false);
-      setManualClientName('');
-      setManualClientPhone('');
-      setSelectedClientId('');
-      setManualServiceId('');
-      setManualDate('');
-      setManualTime('');
-      loadAppData();
-    } catch (err) {
-      alert('Erro ao criar agendamento: ' + err.message);
-    }
-  };
-
-  // Submissão Pública com Tratamento de Cliente Correto
+  // Submissão Pública Sem Erros
   const handlePublicBookingSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -625,8 +312,17 @@ export default function App() {
         const hFim = regraDia.hora_fim.substring(0, 5);
 
         if (bookingTime < hInic || bookingTime > hFim) {
-          alert(`Nas ${DIAS_NOME[diaSemanaIndex]}s o salão atende somente entre ${hInic} e ${hFim}. Por favor, escolha outro horário.`);
+          alert(`Nas ${DIAS_NOME[diaSemanaIndex]}s o salão atende somente entre ${hInic} e ${hFim}.`);
           return;
+        }
+
+        if (regraDia.com_almoco) {
+          const hInicAlm = regraDia.hora_inicio_almoco.substring(0, 5);
+          const hFimAlm = regraDia.hora_fim_almoco.substring(0, 5);
+          if (bookingTime >= hInicAlm && bookingTime < hFimAlm) {
+            alert(`Horário de almoço do salão (${hInicAlm} às ${hFimAlm}). Por favor escolha outro horário.`);
+            return;
+          }
         }
       }
 
@@ -638,10 +334,11 @@ export default function App() {
         .eq('status', 'confirmado');
 
       if (busy && busy.length > 0) {
-        alert('Este horário já foi reservado para outra cliente. Por favor, escolha outro horário.');
+        alert('Este horário já foi reservado. Por favor, escolha outro horário.');
         return;
       }
 
+      // Inserir ou localizar cliente enviando "nome" exclusivamente
       let clientId = null;
       const { data: existingCli } = await supabase.from('clientes')
         .select('id')
@@ -681,30 +378,285 @@ export default function App() {
     }
   };
 
-  const enviarConfirmacaoWhatsApp = (nomeCliente, telefoneCliente, data, horario, servicoNome) => {
-    const numLimpo = (telefoneCliente || '').replace(/\D/g, '');
-    if (!numLimpo) {
-      alert('Esta cliente não tem um telefone cadastrado.');
-      return;
-    }
-
-    const partesData = data.split('-');
-    const dataFormatada = `${partesData[2]}/${partesData[1]}/${partesData[0]}`;
-    const msg = `Olá, ${nomeCliente}! %0A%0APassando para lembrar do seu agendamento no salão *${userProfile?.nome}*:%0A%0A🗓️ *Data:* ${dataFormatada}%0A⏰ *Horário:* ${horario}%0A💇‍♀️ *Serviço:* ${servicoNome}%0A%0APor favor, responda esta mensagem confirmando a sua presença! 😊`;
-
-    window.open(`https://wa.me/55${numLimpo}?text=${msg}`, '_blank');
+  // Funções Master
+  const toggleAgendamentoLink = async (proId, currentStatus) => {
+    const { error } = await supabase.from('perfis').update({ agendamento_link_ativo: !currentStatus }).eq('id', proId);
+    if (!error) loadAppData();
   };
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setLoginError('');
-    setLoading(true);
+  const toggleStatusProfissional = async (proId, currentStatus) => {
+    const newStatus = currentStatus === 'blocked' ? 'active' : 'blocked';
+    const { error } = await supabase.from('perfis').update({ status: newStatus }).eq('id', proId);
+    if (!error) loadAppData();
+  };
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      setLoginError('E-mail ou senha incorretos.');
-      setLoading(false);
+  const handleOpenEditPro = (pro) => {
+    setEditingPro(pro);
+    setEditTipoLicenca('manter');
+    setEditDiasAcesso(30);
+    setEditDataEspecifica('');
+    setEditValorLicenca('50.00');
+    setEditFormaPagto('Pix');
+    setShowEditProModal(true);
+  };
+
+  const handleSaveEditedPro = async (e) => {
+    e.preventDefault();
+    try {
+      const { error: proErr } = await supabase.from('perfis').update({
+        nome: editingPro.nome,
+        telefone: editingPro.telefone,
+        endereco: editingPro.endereco,
+        numero: editingPro.numero,
+        agendamento_link_ativo: editingPro.agendamento_link_ativo,
+        logo_url: editingPro.logo_url,
+        cor_primaria: editingPro.cor_primaria
+      }).eq('id', editingPro.id);
+
+      if (proErr) throw proErr;
+
+      if (editTipoLicenca !== 'manter') {
+        let dataVenc = null;
+        let planoNome = 'Vitalício';
+
+        if (editTipoLicenca === 'dias') {
+          const hoje = new Date();
+          hoje.setDate(hoje.getDate() + parseInt(editDiasAcesso));
+          dataVenc = hoje.toISOString().split('T')[0];
+          planoNome = `${editDiasAcesso} Dias`;
+        } else if (editTipoLicenca === 'data') {
+          dataVenc = editDataEspecifica;
+          planoNome = `Até ${editDataEspecifica.split('-').reverse().join('/')}`;
+        }
+
+        const { error: licErr } = await supabase.from('licencas').insert([{
+          profissional_id: editingPro.id,
+          plano: planoNome,
+          valor: parseFloat(editValorLicenca || 0),
+          forma_pagamento: editFormaPagto,
+          data_pagamento: new Date().toISOString().split('T')[0],
+          data_vencimento: dataVenc,
+          status: 'active'
+        }]);
+
+        if (licErr) throw licErr;
+      }
+
+      setShowEditProModal(false);
+      await loadAppData();
+      alert('Salão e Licença salvos com sucesso!');
+    } catch (err) {
+      alert('Erro ao salvar salão: ' + err.message);
     }
+  };
+
+  const handleCreateProfessional = async (e) => {
+    e.preventDefault();
+    setProModalError('');
+    setProModalSuccess('');
+
+    try {
+      const { data: authData, error: authError } = await supabaseAdmin.auth.signUp({
+        email: newProEmail,
+        password: newProPassword,
+        options: { data: { nome: newProName } }
+      });
+
+      if (authError) throw authError;
+
+      if (authData?.user) {
+        await supabase.from('perfis').insert([{
+          id: authData.user.id,
+          nome: newProName,
+          email: newProEmail,
+          telefone: newProPhone,
+          endereco: newProEndereco,
+          numero: newProNumero,
+          logo_url: newProLogo,
+          cor_primaria: newProCor,
+          agendamento_link_ativo: newProLinkAtivo,
+          role: 'professional',
+          status: 'active'
+        }]);
+
+        let dataVenc = null;
+        let planoNome = 'Vitalício';
+
+        if (tipoLicencaNovo === 'dias') {
+          const dt = new Date();
+          dt.setDate(dt.getDate() + parseInt(diasAcesso));
+          dataVenc = dt.toISOString().split('T')[0];
+          planoNome = `${diasAcesso} Dias`;
+        } else if (tipoLicencaNovo === 'data') {
+          dataVenc = dataEspecificaVenc;
+          planoNome = `Até ${dataEspecificaVenc.split('-').reverse().join('/')}`;
+        }
+
+        await supabase.from('licencas').insert([{
+          profissional_id: authData.user.id,
+          plano: planoNome,
+          valor: parseFloat(planoValor || 0),
+          forma_pagamento: formaPagamento,
+          data_pagamento: new Date().toISOString().split('T')[0],
+          data_vencimento: dataVenc,
+          status: 'active'
+        }]);
+
+        setProModalSuccess('Salão cadastrado com sucesso!');
+        await loadAppData();
+        setTimeout(() => setShowAddProModal(false), 1200);
+      }
+    } catch (err) {
+      setProModalError(err.message || 'Erro ao cadastrar profissional.');
+    }
+  };
+
+  // Salvar Grade Semanal com Almoço
+  const salvarHorarioSemana = async (e) => {
+    e.preventDefault();
+    setConfigSuccess('');
+
+    try {
+      for (const item of weeklySchedule) {
+        const { error } = await supabase.from('horarios_semana').upsert({
+          profissional_id: userProfile.id,
+          dia_semana: item.dia_semana,
+          ativo: item.ativo,
+          hora_inicio: item.hora_inicio,
+          hora_fim: item.hora_fim,
+          com_almoco: item.com_almoco,
+          hora_inicio_almoco: item.hora_inicio_almoco,
+          hora_fim_almoco: item.hora_fim_almoco
+        }, { onConflict: 'profissional_id,dia_semana' });
+
+        if (error) throw error;
+      }
+
+      setConfigSuccess('Horários de atendimento salvos!');
+      setTimeout(() => setConfigSuccess(''), 3000);
+    } catch (err) {
+      alert('Erro ao salvar horários: ' + err.message);
+    }
+  };
+
+  const handleAddClientExt = async (e) => {
+    e.preventDefault();
+    setClientError('');
+
+    try {
+      const { error } = await supabase.from('clientes').insert([{
+        nome: newClientName,
+        telefone: newClientPhone,
+        endereco: newClientEndereco,
+        preferencia_profissional: newClientPrefPro,
+        observacoes: newClientObs,
+        profissional_id: userProfile.id
+      }]);
+
+      if (error) throw error;
+
+      setShowAddClientModal(false);
+      setNewClientName('');
+      setNewClientPhone('');
+      setNewClientEndereco('');
+      setNewClientPrefPro('');
+      setNewClientObs('');
+      await loadAppData();
+    } catch (err) {
+      setClientError(err.message || 'Erro ao cadastrar cliente.');
+    }
+  };
+
+  const handleAddManualAppointment = async (e) => {
+    e.preventDefault();
+    try {
+      let finalClientId = selectedClientId;
+
+      if (apptClientType === 'new') {
+        const { data: newCli, error: cliErr } = await supabase.from('clientes').insert([{
+          nome: manualClientName,
+          telefone: manualClientPhone,
+          profissional_id: userProfile.id
+        }]).select().single();
+
+        if (cliErr) throw cliErr;
+        finalClientId = newCli.id;
+      }
+
+      const { error: apptErr } = await supabase.from('agendamentos').insert([{
+        cliente_id: finalClientId,
+        profissional_id: userProfile.id,
+        servico_id: manualServiceId,
+        data: manualDate,
+        horario: manualTime,
+        status: 'confirmado'
+      }]);
+
+      if (apptErr) throw apptErr;
+
+      setShowAddApptModal(false);
+      loadAppData();
+    } catch (err) {
+      alert('Erro ao criar agendamento: ' + err.message);
+    }
+  };
+
+  const handleUpdateApptStatus = async (apptId, newStatus) => {
+    const { error } = await supabase.from('agendamentos').update({ status: newStatus }).eq('id', apptId);
+    if (!error) loadAppData();
+  };
+
+  const handleOpenAddServiceModal = () => {
+    setEditingServiceId(null);
+    setServiceName('');
+    setServicePrice('');
+    setServiceDesc('');
+    setServiceDuration('30');
+    setShowServiceModal(true);
+  };
+
+  const handleSaveService = async (e) => {
+    e.preventDefault();
+    try {
+      if (editingServiceId) {
+        await supabase.from('servicos').update({
+          nome: serviceName,
+          preco: parseFloat(servicePrice),
+          descricao: serviceDesc,
+          duracao_minutos: parseInt(serviceDuration)
+        }).eq('id', editingServiceId);
+      } else {
+        await supabase.from('servicos').insert([{
+          nome: serviceName,
+          preco: parseFloat(servicePrice),
+          descricao: serviceDesc,
+          duracao_minutos: parseInt(serviceDuration),
+          profissional_id: userProfile.id
+        }]);
+      }
+      setShowServiceModal(false);
+      loadAppData();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const handleAddOffDay = async (e) => {
+    e.preventDefault();
+    if (!newOffDate) return;
+    await supabase.from('folgas_feriados').insert([{
+      profissional_id: userProfile.id,
+      data: newOffDate,
+      motivo: newOffMotivo || 'Folga / Feriado'
+    }]);
+    setNewOffDate('');
+    setNewOffMotivo('');
+    loadAppData();
+  };
+
+  const handleDeleteOffDay = async (id) => {
+    await supabase.from('folgas_feriados').delete().eq('id', id);
+    loadAppData();
   };
 
   const handleLogout = async () => {
@@ -721,21 +673,26 @@ export default function App() {
     );
   }
 
-  // PÁGINA PÚBLICA DE AGENDAMENTO (?pro=UUID)
+  // PÁGINA PÚBLICA DE AGENDAMENTO
   if (publicProId) {
     const linkDesativado = publicProProfile?.agendamento_link_ativo === false;
+    const corTema = publicProProfile?.cor_primaria || '#4f46e5';
 
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-6">
           <div className="text-center border-b pb-4">
-            <div className="w-14 h-14 bg-indigo-600 rounded-2xl mx-auto flex items-center justify-center text-white mb-2 shadow-lg">
-              <Scissors className="w-7 h-7" />
-            </div>
+            {publicProProfile?.logo_url ? (
+              <img src={publicProProfile.logo_url} alt="Logo Salão" className="w-20 h-20 rounded-2xl object-cover mx-auto mb-2 shadow" />
+            ) : (
+              <div style={{ backgroundColor: corTema }} className="w-16 h-16 rounded-2xl mx-auto flex items-center justify-center text-white mb-2 shadow-lg">
+                <Scissors className="w-8 h-8" />
+              </div>
+            )}
             <h1 className="text-2xl font-bold text-slate-900">{publicProProfile?.nome || 'Agenda Online'}</h1>
             {publicProProfile?.endereco && (
               <p className="text-xs text-slate-500 mt-1 flex items-center justify-center gap-1">
-                <MapPin className="w-3.5 h-3.5 text-indigo-600" />
+                <MapPin className="w-3.5 h-3.5 text-slate-400" />
                 {publicProProfile.endereco}, Nº {publicProProfile.numero || 'S/N'}
               </p>
             )}
@@ -745,15 +702,15 @@ export default function App() {
             <div className="text-center py-8 space-y-3">
               <AlertTriangle className="w-16 h-16 text-amber-500 mx-auto" />
               <h2 className="text-xl font-bold text-slate-900">Agendamento Online Indisponível</h2>
-              <p className="text-sm text-slate-600">No momento, o agendamento por link está temporariamente desativado para este salão. Entre em contato diretamente pelo WhatsApp.</p>
+              <p className="text-sm text-slate-600">No momento, o agendamento por link está temporariamente desativado para este salão.</p>
             </div>
           ) : publicSuccess ? (
             <div className="text-center py-8 space-y-3">
               <CheckCircle2 className="w-16 h-16 text-emerald-500 mx-auto" />
-              <h2 className="text-xl font-bold text-slate-900">Solicitação Enviada!</h2>
-              <p className="text-sm text-slate-600">Sua solicitação de agendamento foi enviada. O salão confirmará em breve!</p>
-              <button onClick={() => setPublicSuccess(false)} className="mt-4 bg-indigo-600 text-white px-6 py-2 rounded-lg text-sm font-semibold">
-                Solicitar Outro Agendamento
+              <h2 className="text-xl font-bold text-slate-900">Solicitação Enviada com Sucesso!</h2>
+              <p className="text-sm text-slate-600">O salão confirmará o seu atendimento em breve.</p>
+              <button onClick={() => setPublicSuccess(false)} style={{ backgroundColor: corTema }} className="mt-4 text-white px-6 py-2.5 rounded-lg text-sm font-semibold shadow">
+                Novo Agendamento
               </button>
             </div>
           ) : (
@@ -769,7 +726,7 @@ export default function App() {
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Serviço / Produto</label>
                 <select required value={selectedService} onChange={e => setSelectedService(e.target.value)} className="w-full border rounded-lg p-3 text-sm">
-                  <option value="">Selecione o serviço...</option>
+                  <option value="">Selecione...</option>
                   {publicServices.map(s => (
                     <option key={s.id} value={s.id}>
                       {s.nome} — R$ {parseFloat(s.preco).toFixed(2)} ({s.duracao_minutos || 30} min)
@@ -790,7 +747,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Forma de Pagamento no Salão</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Forma de Pagamento</label>
                 <select value={publicFormaPagto} onChange={e => setPublicFormaPagto(e.target.value)} className="w-full border rounded-lg p-3 text-sm">
                   <option value="Pix no Local">Pix no Local</option>
                   <option value="Cartão de Crédito/Débito">Cartão de Crédito/Débito</option>
@@ -798,7 +755,7 @@ export default function App() {
                 </select>
               </div>
 
-              <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl transition shadow-lg mt-2">
+              <button type="submit" style={{ backgroundColor: corTema }} className="w-full text-white font-bold py-3.5 rounded-xl transition shadow-lg mt-2">
                 Solicitar Agendamento
               </button>
             </form>
@@ -823,17 +780,21 @@ export default function App() {
 
           {loginError && <div className="p-3 bg-rose-50 text-rose-700 text-xs rounded-lg border border-rose-200">{loginError}</div>}
 
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={e => {
+            e.preventDefault();
+            setLoading(true);
+            supabase.auth.signInWithPassword({ email, password }).then(({ error }) => {
+              if (error) { setLoginError('E-mail ou senha incorretos.'); setLoading(false); }
+            });
+          }} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">E-mail</label>
               <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="seu@email.com" className="w-full border rounded-lg p-3 text-sm" />
             </div>
-
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Senha</label>
               <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full border rounded-lg p-3 text-sm" />
             </div>
-
             <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-lg transition shadow">
               Entrar no Sistema
             </button>
@@ -845,17 +806,7 @@ export default function App() {
 
   // PAINEL MASTER
   if (userProfile.role === 'master') {
-    const saloesComVencimentoProximo = professionals.filter(p => {
-      if (p.role === 'master') return false;
-      const lic = licencas.find(l => l.profissional_id === p.id);
-      if (!lic) return false;
-      if (!lic.data_vencimento) return false; // Vitalício não vence
-
-      const hoje = new Date();
-      const venc = new Date(lic.data_vencimento);
-      const diffDays = Math.ceil((venc - hoje) / (1000 * 60 * 60 * 24));
-      return diffDays <= 7;
-    });
+    const totalVendasLicencas = licencas.reduce((acc, l) => acc + (parseFloat(l.valor) || 0), 0);
 
     return (
       <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row font-sans">
@@ -864,7 +815,7 @@ export default function App() {
             <div className="p-2 bg-indigo-600 rounded-lg text-white"><Shield className="w-6 h-6" /></div>
             <div>
               <h1 className="font-bold text-lg leading-tight">Painel Master</h1>
-              <p className="text-xs text-indigo-400">Gestão de Licenças & Salões</p>
+              <p className="text-xs text-indigo-400">Gestão & Finanças</p>
             </div>
           </div>
 
@@ -872,16 +823,8 @@ export default function App() {
             <button onClick={() => setActiveTab('master_profs')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'master_profs' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
               <Users className="w-5 h-5" /> Salões Cadastrados
             </button>
-
-            <button onClick={() => setActiveTab('master_vencimentos')} className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'master_vencimentos' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-              <div className="flex items-center gap-3">
-                <AlertCircle className="w-5 h-5 text-amber-400" /> Vencimentos (&lt; 7 Dias)
-              </div>
-              {saloesComVencimentoProximo.length > 0 && (
-                <span className="bg-amber-500 text-slate-900 font-bold text-xs px-2 py-0.5 rounded-full">
-                  {saloesComVencimentoProximo.length}
-                </span>
-              )}
+            <button onClick={() => setActiveTab('master_financeiro')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'master_financeiro' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+              <TrendingUp className="w-5 h-5 text-emerald-400" /> Gestão Financeira
             </button>
           </nav>
 
@@ -898,7 +841,7 @@ export default function App() {
               <div className="flex justify-between items-center mb-6">
                 <div>
                   <h2 className="text-2xl font-bold text-slate-900">Salões Cadastrados</h2>
-                  <p className="text-sm text-slate-500 mt-1">Visão geral e controle completo de licenças dos salões.</p>
+                  <p className="text-sm text-slate-500 mt-1">Gerencie logins, aparências e licenças ativas.</p>
                 </div>
                 <button onClick={() => setShowAddProModal(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 shadow">
                   <UserPlus className="w-4 h-4" /> Cadastrar Novo Salão
@@ -910,21 +853,6 @@ export default function App() {
                   const lic = licencas.find(l => l.profissional_id === p.id);
                   const isExpanded = expandedProId === p.id;
 
-                  let isVitalicio = false;
-                  let diasRestantes = null;
-                  let exspirado = false;
-
-                  if (lic) {
-                    if (!lic.data_vencimento) {
-                      isVitalicio = true;
-                    } else {
-                      const hoje = new Date();
-                      const venc = new Date(lic.data_vencimento);
-                      diasRestantes = Math.ceil((venc - hoje) / (1000 * 60 * 60 * 24));
-                      if (diasRestantes < 0) exspirado = true;
-                    }
-                  }
-
                   return (
                     <div key={p.id} className="border rounded-xl bg-slate-50 overflow-hidden transition">
                       <div 
@@ -932,97 +860,28 @@ export default function App() {
                         className="p-4 flex flex-col md:flex-row justify-between items-start md:items-center cursor-pointer hover:bg-slate-100/80 transition gap-4"
                       >
                         <div className="flex items-center gap-3">
-                          {isExpanded ? <ChevronUp className="w-5 h-5 text-indigo-600" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-bold text-slate-900 text-base">{p.nome}</h4>
-                              <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                                p.status === 'blocked' ? 'bg-rose-100 text-rose-800' :
-                                isVitalicio ? 'bg-purple-100 text-purple-800' :
-                                exspirado ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
-                              }`}>
-                                {p.status === 'blocked' ? 'Bloqueado' : isVitalicio ? 'Vitalício' : exspirado ? 'Expirado' : 'Ativo'}
-                              </span>
+                          {p.logo_url ? (
+                            <img src={p.logo_url} alt="Logo" className="w-10 h-10 rounded-lg object-cover border" />
+                          ) : (
+                            <div style={{ backgroundColor: p.cor_primaria || '#4f46e5' }} className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold">
+                              {p.nome?.substring(0, 2).toUpperCase()}
                             </div>
-                            <p className="text-xs text-slate-500">{p.email} • WhatsApp: {p.telefone || 'Não informado'}</p>
+                          )}
+                          <div>
+                            <h4 className="font-bold text-slate-900 text-base">{p.nome}</h4>
+                            <p className="text-xs text-slate-500">{p.email} • WhatsApp: {p.telefone || 'N/I'}</p>
                           </div>
                         </div>
 
                         <div className="flex items-center gap-3">
-                          {lic && (
-                            <div className="text-right text-xs">
-                              <span className="text-slate-500 block">
-                                Vencimento: <strong className="text-slate-800">{isVitalicio ? 'Vitalício (Sem Expiração)' : lic.data_vencimento?.split('-').reverse().join('/')}</strong>
-                              </span>
-                              <span className={`font-bold block ${isVitalicio ? 'text-purple-600' : exspirado ? 'text-rose-600' : diasRestantes <= 5 ? 'text-amber-600' : 'text-emerald-600'}`}>
-                                {isVitalicio ? 'Acesso Permanente' : exspirado ? `Vencido há ${Math.abs(diasRestantes)} dias` : `${diasRestantes} dias restantes`}
-                              </span>
-                            </div>
-                          )}
-
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); handleOpenEditPro(p); }} 
-                            className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold rounded-lg text-xs flex items-center gap-1.5 transition border border-indigo-200"
-                          >
-                            <Edit className="w-3.5 h-3.5" /> Editar / Licença
+                          <span className="text-xs font-bold text-slate-700 bg-slate-200 px-3 py-1 rounded-full">
+                            Vencimento: {lic?.data_vencimento ? lic.data_vencimento.split('-').reverse().join('/') : 'Vitalício'}
+                          </span>
+                          <button onClick={(e) => { e.stopPropagation(); handleOpenEditPro(p); }} className="px-3 py-1.5 bg-indigo-50 text-indigo-600 font-bold rounded-lg text-xs border border-indigo-200">
+                            Editar / Licença
                           </button>
                         </div>
                       </div>
-
-                      {isExpanded && (
-                        <div className="p-4 border-t bg-white space-y-4 text-xs text-slate-600">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-3 rounded-lg border">
-                            <div>
-                              <p className="font-bold text-slate-800 mb-1 flex items-center gap-1">
-                                <MapPin className="w-3.5 h-3.5 text-indigo-600" /> Endereço:
-                              </p>
-                              <p>{p.endereco ? `${p.endereco}, Nº ${p.numero || 'S/N'}` : 'Não informado'}</p>
-                            </div>
-                            <div>
-                              <p className="font-bold text-slate-800 mb-1 flex items-center gap-1">
-                                <CreditCard className="w-3.5 h-3.5 text-indigo-600" /> Detalhes da Licença:
-                              </p>
-                              <p>Plano: <strong>{lic?.plano || 'N/A'}</strong> — R$ {parseFloat(lic?.valor || 0).toFixed(2)} ({lic?.forma_pagamento || 'N/A'})</p>
-                              <p>Ativação: {lic?.data_pagamento?.split('-').reverse().join('/') || 'N/A'}</p>
-                            </div>
-                          </div>
-
-                          <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                            <div className="flex items-center gap-2 bg-slate-100 px-3 py-2 rounded-lg border">
-                              <span className="font-semibold text-slate-700">Link de Agendamento:</span>
-                              <button 
-                                onClick={() => toggleAgendamentoLink(p.id, p.agendamento_link_ativo !== false)}
-                                className={`flex items-center gap-1 font-bold text-xs px-2.5 py-1 rounded-md transition ${
-                                  p.agendamento_link_ativo !== false ? 'bg-emerald-600 text-white' : 'bg-slate-400 text-white'
-                                }`}
-                              >
-                                {p.agendamento_link_ativo !== false ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
-                                {p.agendamento_link_ativo !== false ? 'Habilitado' : 'Desabilitado'}
-                              </button>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              {!isVitalicio && (
-                                <button 
-                                  onClick={() => enviarAvisoVencimentoWhats(p.nome, p.telefone, lic?.data_vencimento)}
-                                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow"
-                                >
-                                  <BellRing className="w-3.5 h-3.5" /> Lembrete Whats
-                                </button>
-                              )}
-                              <button 
-                                onClick={() => toggleStatusProfissional(p.id, p.status)}
-                                className={`px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow text-white ${
-                                  p.status === 'blocked' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-rose-600 hover:bg-rose-700'
-                                }`}
-                              >
-                                {p.status === 'blocked' ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-                                {p.status === 'blocked' ? 'Desbloquear Conta' : 'Desativar Conta'}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
                     </div>
                   );
                 })}
@@ -1030,80 +889,173 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === 'master_vencimentos' && (
-            <div>
-              <div className="mb-6">
-                <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-                  <AlertCircle className="w-7 h-7 text-amber-500" /> Assinaturas com Vencimento Próximo
-                </h2>
-                <p className="text-sm text-slate-500 mt-1">Lista exclusiva de salões cujas licenças vencerão em 7 dias ou menos (ou já venceram).</p>
+          {activeTab === 'master_financeiro' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900">Gestão Financeira de Vendas de Licenças</h2>
+                <p className="text-sm text-slate-500 mt-1">Acompanhe o faturamento obtido através das licenças dos salões.</p>
               </div>
 
-              <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-3">
-                {saloesComVencimentoProximo.length === 0 ? (
-                  <div className="text-center py-8 text-slate-500 space-y-2">
-                    <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
-                    <p className="font-semibold text-slate-700">Tudo em dia!</p>
-                    <p className="text-xs">Nenhum salão possui licença para vencer nos próximos 7 dias.</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white p-6 rounded-xl border shadow-sm flex items-center justify-between">
+                  <div>
+                    <span className="text-xs text-slate-500 font-bold uppercase block">Faturamento Total</span>
+                    <span className="text-2xl font-extrabold text-emerald-600">R$ {totalVendasLicencas.toFixed(2)}</span>
                   </div>
-                ) : (
-                  saloesComVencimentoProximo.map(p => {
-                    const lic = licencas.find(l => l.profissional_id === p.id);
-                    const hoje = new Date();
-                    const venc = new Date(lic?.data_vencimento);
-                    const diffDays = Math.ceil((venc - hoje) / (1000 * 60 * 60 * 24));
-                    const expirado = diffDays < 0;
+                  <div className="p-3 bg-emerald-100 text-emerald-700 rounded-xl"><DollarSign className="w-6 h-6" /></div>
+                </div>
 
-                    return (
-                      <div key={p.id} className="p-4 border-2 border-amber-200 rounded-xl bg-amber-50/40 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-bold text-slate-900 text-base">{p.nome}</h4>
-                            <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
-                              expirado ? 'bg-rose-100 text-rose-800' : 'bg-amber-200 text-amber-900'
-                            }`}>
-                              {expirado ? 'Já Vencido' : `Vence em ${diffDays} dias`}
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-600 mt-1">E-mail: {p.email} • WhatsApp: {p.telefone || 'Não informado'}</p>
-                          <p className="text-xs text-slate-700 font-semibold mt-1">
-                            Vencimento da Licença: <strong className="text-slate-900">{lic?.data_vencimento?.split('-').reverse().join('/')}</strong>
-                          </p>
-                        </div>
+                <div className="bg-white p-6 rounded-xl border shadow-sm flex items-center justify-between">
+                  <div>
+                    <span className="text-xs text-slate-500 font-bold uppercase block">Total de Vendas / Contratos</span>
+                    <span className="text-2xl font-extrabold text-indigo-600">{licencas.length}</span>
+                  </div>
+                  <div className="p-3 bg-indigo-100 text-indigo-700 rounded-xl"><CreditCard className="w-6 h-6" /></div>
+                </div>
 
-                        <div className="flex items-center gap-2">
-                          <button 
-                            onClick={() => handleOpenEditPro(p)}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3.5 py-2.5 rounded-lg font-bold flex items-center gap-1.5 shadow transition"
-                          >
-                            <CreditCard className="w-4 h-4" /> Inserir Nova Licença
-                          </button>
-                          <button 
-                            onClick={() => enviarAvisoVencimentoWhats(p.nome, p.telefone, lic?.data_vencimento)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3.5 py-2.5 rounded-lg font-bold flex items-center gap-1.5 shadow transition"
-                          >
-                            <BellRing className="w-4 h-4" /> Cobrar via WhatsApp
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
+                <div className="bg-white p-6 rounded-xl border shadow-sm flex items-center justify-between">
+                  <div>
+                    <span className="text-xs text-slate-500 font-bold uppercase block">Salões Ativos</span>
+                    <span className="text-2xl font-extrabold text-slate-800">{professionals.filter(p => p.role !== 'master').length}</span>
+                  </div>
+                  <div className="p-3 bg-slate-100 text-slate-700 rounded-xl"><Users className="w-6 h-6" /></div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border p-6 shadow-sm">
+                <h3 className="font-bold text-slate-900 text-base mb-4">Histórico de Transações e Licenças Vendidas</h3>
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b bg-slate-50 text-slate-600">
+                      <th className="p-3 font-bold">Salão</th>
+                      <th className="p-3 font-bold">Plano</th>
+                      <th className="p-3 font-bold">Valor</th>
+                      <th className="p-3 font-bold">Forma de Pagamento</th>
+                      <th className="p-3 font-bold">Data Compra</th>
+                      <th className="p-3 font-bold">Vencimento</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {licencas.map(l => {
+                      const pro = professionals.find(p => p.id === l.profissional_id);
+                      return (
+                        <tr key={l.id} className="border-b hover:bg-slate-50">
+                          <td className="p-3 font-bold text-slate-800">{pro?.nome || 'Salão'}</td>
+                          <td className="p-3">{l.plano}</td>
+                          <td className="p-3 font-bold text-emerald-600">R$ {parseFloat(l.valor || 0).toFixed(2)}</td>
+                          <td className="p-3">{l.forma_pagamento}</td>
+                          <td className="p-3">{l.data_pagamento?.split('-').reverse().join('/')}</td>
+                          <td className="p-3">{l.data_vencimento ? l.data_vencimento.split('-').reverse().join('/') : 'Vitalício'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
         </main>
 
-        {/* MODAL EDITAR SALÃO & GERENCIAR LICENÇA */}
+        {/* MODAL CADASTRAR NOVO SALÃO */}
+        {showAddProModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4 max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center border-b pb-3">
+                <h3 className="font-bold text-slate-900 text-lg">Novo Salão com Personalização & Licença</h3>
+                <button onClick={() => setShowAddProModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
+              </div>
+
+              {proModalError && <div className="p-3 bg-rose-50 text-rose-700 text-xs rounded-lg border border-rose-200">{proModalError}</div>}
+              {proModalSuccess && <div className="p-3 bg-emerald-50 text-emerald-700 text-xs rounded-lg border border-emerald-200">{proModalSuccess}</div>}
+
+              <form onSubmit={handleCreateProfessional} className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Nome do Salão</label>
+                    <input type="text" required value={newProName} onChange={e => setNewProName(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">E-mail</label>
+                    <input type="email" required value={newProEmail} onChange={e => setNewProEmail(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp</label>
+                    <input type="tel" required value={newProPhone} onChange={e => setNewProPhone(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Senha</label>
+                    <input type="password" required value={newProPassword} onChange={e => setNewProPassword(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+                  </div>
+                </div>
+
+                <div className="border-t pt-3 space-y-3">
+                  <h4 className="font-bold text-slate-900 text-xs text-indigo-600 flex items-center gap-1"><Palette className="w-4 h-4" /> Personalização Visual</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">URL da Foto / Logo</label>
+                      <input type="text" value={newProLogo} onChange={e => setNewProLogo(e.target.value)} placeholder="https://..." className="w-full border rounded-lg p-2 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Cor Principal</label>
+                      <input type="color" value={newProCor} onChange={e => setNewProCor(e.target.value)} className="w-full h-9 border rounded-lg p-1 cursor-pointer" />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t pt-3 space-y-3">
+                  <h4 className="font-bold text-slate-900 text-xs text-indigo-600 flex items-center gap-1"><CreditCard className="w-4 h-4" /> Licença & Período de Uso</h4>
+                  <select value={tipoLicencaNovo} onChange={e => setTipoLicencaNovo(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm font-medium">
+                    <option value="dias">Quantidade de Dias (Ex: 30 dias)</option>
+                    <option value="data">Data Específica de Expiração</option>
+                    <option value="vitalicio">Acesso Vitalício</option>
+                  </select>
+
+                  {tipoLicencaNovo === 'dias' && (
+                    <input type="number" required value={diasAcesso} onChange={e => setDiasAcesso(e.target.value)} placeholder="30" className="w-full border rounded-lg p-2.5 text-sm" />
+                  )}
+
+                  {tipoLicencaNovo === 'data' && (
+                    <input type="date" required value={dataEspecificaVenc} onChange={e => setDataEspecificaVenc(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+                  )}
+
+                  <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Valor Pago (R$)</label>
+                      <input type="number" step="0.01" value={planoValor} onChange={e => setPlanoValor(e.target.value)} className="w-full border rounded-lg p-2 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1">Pagamento</label>
+                      <select value={formaPagamento} onChange={e => setFormaPagamento(e.target.value)} className="w-full border rounded-lg p-2 text-sm">
+                        <option value="Pix">Pix</option>
+                        <option value="Cartão de Crédito">Cartão de Crédito</option>
+                        <option value="Dinheiro">Dinheiro</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-3 border-t">
+                  <button type="button" onClick={() => setShowAddProModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+                  <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Cadastrar Salão</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL EDITAR SALÃO */}
         {showEditProModal && editingPro && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4 max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-center border-b pb-3">
-                <h3 className="font-bold text-slate-900 text-lg">Editar Salão & Licença</h3>
+                <h3 className="font-bold text-slate-900 text-lg">Editar Salão & Personalização</h3>
                 <button onClick={() => setShowEditProModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
               </div>
 
-              <form onSubmit={handleSaveEditedPro} className="space-y-4">
+              <form onSubmit={handleSaveEditedPro} className="space-y-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Nome do Salão</label>
                   <input type="text" required value={editingPro.nome} onChange={e => setEditingPro({ ...editingPro, nome: e.target.value })} className="w-full border rounded-lg p-2.5 text-sm" />
@@ -1115,74 +1067,31 @@ export default function App() {
                     <input type="tel" value={editingPro.telefone || ''} onChange={e => setEditingPro({ ...editingPro, telefone: e.target.value })} className="w-full border rounded-lg p-2.5 text-sm" />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Número do Imóvel</label>
-                    <input type="text" value={editingPro.numero || ''} onChange={e => setEditingPro({ ...editingPro, numero: e.target.value })} className="w-full border rounded-lg p-2.5 text-sm" />
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">Cor Principal</label>
+                    <input type="color" value={editingPro.cor_primaria || '#4f46e5'} onChange={e => setEditingPro({ ...editingPro, cor_primaria: e.target.value })} className="w-full h-9 border rounded-lg p-1 cursor-pointer" />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Endereço Completo</label>
-                  <input type="text" value={editingPro.endereco || ''} onChange={e => setEditingPro({ ...editingPro, endereco: e.target.value })} className="w-full border rounded-lg p-2.5 text-sm" />
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">URL da Logo / Foto</label>
+                  <input type="text" value={editingPro.logo_url || ''} onChange={e => setEditingPro({ ...editingPro, logo_url: e.target.value })} className="w-full border rounded-lg p-2.5 text-sm" />
                 </div>
 
                 <div className="border-t pt-3 space-y-3">
-                  <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5 text-indigo-700">
-                    <CreditCard className="w-4 h-4" /> Renovação / Alteração de Licença
-                  </h4>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Ação da Licença</label>
-                    <select 
-                      value={editTipoLicenca} 
-                      onChange={e => setEditTipoLicenca(e.target.value)} 
-                      className="w-full border rounded-lg p-2.5 text-sm font-medium"
-                    >
-                      <option value="manter">Manter Licença Atual</option>
-                      <option value="dias">Adicionar Dias de Acesso (Ex: 30, 60, 365 dias)</option>
-                      <option value="vitalicio">Liberar Acesso Vitalício (Sem Vencimento)</option>
-                    </select>
-                  </div>
+                  <h4 className="font-bold text-slate-900 text-xs text-indigo-600">Alterar Período da Licença</h4>
+                  <select value={editTipoLicenca} onChange={e => setEditTipoLicenca(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm font-medium">
+                    <option value="manter">Manter Licença Atual</option>
+                    <option value="dias">Adicionar Dias de Uso</option>
+                    <option value="data">Definir Data Específica de Expiração</option>
+                    <option value="vitalicio">Tornar Vitalício</option>
+                  </select>
 
                   {editTipoLicenca === 'dias' && (
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Quantidade de Dias Liberados</label>
-                      <input 
-                        type="number" 
-                        required 
-                        value={editDiasAcesso} 
-                        onChange={e => setEditDiasAcesso(e.target.value)} 
-                        placeholder="Ex: 30" 
-                        className="w-full border rounded-lg p-2.5 text-sm" 
-                      />
-                    </div>
+                    <input type="number" value={editDiasAcesso} onChange={e => setEditDiasAcesso(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
                   )}
 
-                  {editTipoLicenca !== 'manter' && (
-                    <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border">
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Valor Pago (R$)</label>
-                        <input 
-                          type="number" 
-                          step="0.01" 
-                          value={editValorLicenca} 
-                          onChange={e => setEditValorLicenca(e.target.value)} 
-                          className="w-full border rounded-lg p-2 text-sm" 
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1">Forma de Pagamento</label>
-                        <select 
-                          value={editFormaPagto} 
-                          onChange={e => setEditFormaPagto(e.target.value)} 
-                          className="w-full border rounded-lg p-2 text-sm"
-                        >
-                          <option value="Pix">Pix</option>
-                          <option value="Cartão de Crédito">Cartão de Crédito</option>
-                          <option value="Dinheiro">Dinheiro</option>
-                          <option value="Cortesia/Bônus">Cortesia / Bônus</option>
-                        </select>
-                      </div>
-                    </div>
+                  {editTipoLicenca === 'data' && (
+                    <input type="date" value={editDataEspecifica} onChange={e => setEditDataEspecifica(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
                   )}
                 </div>
 
@@ -1194,143 +1103,55 @@ export default function App() {
             </div>
           </div>
         )}
-
-        {/* MODAL CADASTRAR PROFISSIONAL */}
-        {showAddProModal && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4 max-h-[90vh] overflow-y-auto">
-              <div className="flex justify-between items-center border-b pb-3">
-                <h3 className="font-bold text-slate-900 text-lg">Novo Salão & Licença Initial</h3>
-                <button onClick={() => setShowAddProModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
-              </div>
-
-              {proModalError && <div className="p-3 bg-rose-50 text-rose-700 text-xs rounded-lg border border-rose-200">{proModalError}</div>}
-              {proModalSuccess && <div className="p-3 bg-emerald-50 text-emerald-700 text-xs rounded-lg border border-emerald-200">{proModalSuccess}</div>}
-
-              <form onSubmit={handleCreateProfessional} className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Nome do Salão</label>
-                    <input type="text" required value={newProName} onChange={e => setNewProName(e.target.value)} placeholder="Ex: Salão Beleza" className="w-full border rounded-lg p-2.5 text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">E-mail de Acesso</label>
-                    <input type="email" required value={newProEmail} onChange={e => setNewProEmail(e.target.value)} placeholder="email@exemplo.com" className="w-full border rounded-lg p-2.5 text-sm" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp</label>
-                    <input type="tel" required value={newProPhone} onChange={e => setNewProPhone(e.target.value)} placeholder="47999999999" className="w-full border rounded-lg p-2.5 text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Senha Inicial</label>
-                    <input type="password" required value={newProPassword} onChange={e => setNewProPassword(e.target.value)} placeholder="Mínimo 6 caracteres" className="w-full border rounded-lg p-2.5 text-sm" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="col-span-2">
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Endereço</label>
-                    <input type="text" value={newProEndereco} onChange={e => setNewProEndereco(e.target.value)} placeholder="Rua / Av..." className="w-full border rounded-lg p-2.5 text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Número</label>
-                    <input type="text" value={newProNumero} onChange={e => setNewProNumero(e.target.value)} placeholder="123" className="w-full border rounded-lg p-2.5 text-sm" />
-                  </div>
-                </div>
-
-                <div className="border-t pt-3 space-y-3">
-                  <h4 className="font-bold text-slate-900 text-sm text-indigo-700">Licença Inicial</h4>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo da Licença Inicial</label>
-                    <select value={tipoLicencaNovo} onChange={e => setTipoLicencaNovo(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm font-medium">
-                      <option value="dias">Dias Liberados (Ex: 30 Dias)</option>
-                      <option value="vitalicio">Acesso Vitalício (Sem Expiração)</option>
-                    </select>
-                  </div>
-
-                  {tipoLicencaNovo === 'dias' && (
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Dias de Acesso</label>
-                      <input type="number" required value={diasAcesso} onChange={e => setDiasAcesso(e.target.value)} placeholder="Ex: 30" className="w-full border rounded-lg p-2.5 text-sm" />
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Valor Cobrado (R$)</label>
-                      <input type="number" step="0.01" value={planoValor} onChange={e => setPlanoValor(e.target.value)} className="w-full border rounded-lg p-2 text-sm" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Pagamento</label>
-                      <select value={formaPagamento} onChange={e => setFormaPagamento(e.target.value)} className="w-full border rounded-lg p-2 text-sm">
-                        <option value="Pix">Pix</option>
-                        <option value="Cartão de Crédito">Cartão de Crédito</option>
-                        <option value="Dinheiro">Dinheiro</option>
-                        <option value="Cortesia/Bônus">Cortesia / Bônus</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer pt-2">
-                    <input type="checkbox" checked={newProLinkAtivo} onChange={e => setNewProLinkAtivo(e.target.checked)} className="rounded text-indigo-600" />
-                    Habilitar Agendamento por Link para este salão
-                  </label>
-                </div>
-
-                <div className="flex justify-end gap-3 pt-3 border-t">
-                  <button type="button" onClick={() => setShowAddProModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
-                  <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Cadastrar Profissional</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
 
-  const proLinkPublico = `${window.location.origin}/?pro=${userProfile?.id}`;
-  const pendentesCount = proAppointments.filter(a => a.status === 'pendente').length;
+  // COR DO SALÃO
+  const corSalão = userProfile?.cor_primaria || '#4f46e5';
 
-  // PAINEL DA CABELEIREIRA / PROFISSIONAL
+  // GERAR DIAS DA SEMANA PARA O DASHBOARD DE AGENDA
+  const diasDaSemana = Array.from({ length: 7 }).map((_, idx) => {
+    const d = new Date(currentWeekStart);
+    d.setDate(d.getDate() + idx);
+    return d;
+  });
+
+  // PAINEL DO SALÃO / PROFISSIONAL
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row font-sans">
       <aside className="w-full md:w-64 bg-slate-900 text-slate-100 flex flex-col border-r border-slate-800">
         <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-          <div className="p-2 bg-indigo-600 rounded-lg text-white"><Scissors className="w-6 h-6" /></div>
+          {userProfile?.logo_url ? (
+            <img src={userProfile.logo_url} alt="Logo Salão" className="w-12 h-12 rounded-xl object-cover border border-slate-700 shadow" />
+          ) : (
+            <div style={{ backgroundColor: corSalão }} className="p-2.5 rounded-xl text-white shadow">
+              <Scissors className="w-6 h-6" />
+            </div>
+          )}
           <div>
-            <h1 className="font-bold text-lg leading-tight">{userProfile?.nome}</h1>
-            <p className="text-xs text-slate-400">Agenda Profissional</p>
+            <h1 className="font-bold text-base leading-tight truncate max-w-[130px]">{userProfile?.nome}</h1>
+            <p className="text-xs text-slate-400">Painel do Salão</p>
           </div>
         </div>
 
         <nav className="flex-1 p-4 space-y-1">
-          <button onClick={() => setProTab('agenda')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'agenda' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <Calendar className="w-5 h-5" /> Agendamentos
+          <button onClick={() => setProTab('dashboard_agenda')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'dashboard_agenda' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+            <Calendar className="w-5 h-5" /> Dashboard Agenda
           </button>
-
           <button onClick={() => setProTab('aprovacao')} className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'aprovacao' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <div className="flex items-center gap-3">
-              <Inbox className="w-5 h-5" /> Aprovação de Agendamento
-            </div>
-            {pendentesCount > 0 && (
+            <div className="flex items-center gap-3"><Inbox className="w-5 h-5" /> Solicitações</div>
+            {proAppointments.filter(a => a.status === 'pendente').length > 0 && (
               <span className="bg-amber-500 text-slate-900 font-bold text-xs px-2 py-0.5 rounded-full">
-                {pendentesCount}
+                {proAppointments.filter(a => a.status === 'pendente').length}
               </span>
             )}
           </button>
-
           <button onClick={() => setProTab('servicos')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'servicos' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Scissors className="w-5 h-5" /> Serviços & Produtos
           </button>
           <button onClick={() => setProTab('clientes')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'clientes' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-            <Users className="w-5 h-5" /> Minhas Clientes
+            <Users className="w-5 h-5" /> Clientes
           </button>
           <button onClick={() => setProTab('config')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'config' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
             <Settings className="w-5 h-5" /> Horários & Folgas
@@ -1345,530 +1166,307 @@ export default function App() {
       </aside>
 
       <main className="flex-1 p-8 overflow-y-auto">
-        <div className="bg-gradient-to-r from-indigo-900 to-slate-900 text-white p-6 rounded-2xl shadow-lg mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border border-indigo-700/50">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <Share2 className="w-5 h-5 text-indigo-400" />
-              <h3 className="font-bold text-lg">Seu Link de Agendamento Online</h3>
-            </div>
-            <p className="text-xs text-indigo-200">Envie este link para suas clientes realizarem o agendamento diretamente pela internet.</p>
-            <div className="mt-3 bg-slate-800/80 px-3 py-2 rounded-lg border border-slate-700 text-xs text-indigo-300 font-mono truncate max-w-md">
-              {proLinkPublico}
+        {/* TOP BANNER / LOGO SALÃO */}
+        <div style={{ backgroundColor: corSalão }} className="text-white p-6 rounded-2xl shadow-lg mb-8 flex justify-between items-center">
+          <div className="flex items-center gap-4">
+            {userProfile?.logo_url && (
+              <img src={userProfile.logo_url} alt="Logo" className="w-16 h-16 rounded-xl object-cover border-2 border-white/40 shadow-md" />
+            )}
+            <div>
+              <h2 className="text-2xl font-bold">{userProfile?.nome}</h2>
+              <p className="text-xs text-white/80">Bem-vinda(o) ao seu painel de agendamentos!</p>
             </div>
           </div>
-
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={() => { navigator.clipboard.writeText(proLinkPublico); alert('Link público copiado!'); }} 
-              className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-4 py-2.5 rounded-lg font-semibold flex items-center gap-2 shadow transition"
-            >
-              <Copy className="w-4 h-4" /> Copiar Link
-            </button>
-            <a 
-              href={proLinkPublico} 
-              target="_blank" 
-              rel="noreferrer"
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-4 py-2.5 rounded-lg font-semibold flex items-center gap-2 border border-slate-700 transition"
-            >
-              <ExternalLink className="w-4 h-4" /> Visualizar
-            </a>
-          </div>
+          <button onClick={() => setShowAddApptModal(true)} className="bg-white text-slate-900 font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow">
+            <CalendarPlus className="w-4 h-4 text-indigo-600" /> Novo Agendamento
+          </button>
         </div>
 
-        {proTab === 'agenda' && (
-          <div>
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h2 className="text-2xl font-bold text-slate-900">Agenda de Horários</h2>
-                <p className="text-sm text-slate-500 mt-1">Lista de compromissos confirmados no salão.</p>
+        {/* MENU DASHBOARD DA AGENDA (VISUALIZAÇÃO SEMANAL IGUAL À IMAGEM) */}
+        {proTab === 'dashboard_agenda' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl border shadow-sm">
+              <div className="flex items-center gap-3">
+                <button onClick={() => {
+                  const prev = new Date(currentWeekStart);
+                  prev.setDate(prev.getDate() - 7);
+                  setCurrentWeekStart(prev);
+                }} className="p-2 border rounded-xl hover:bg-slate-50"><ChevronLeft className="w-5 h-5 text-slate-600" /></button>
+                
+                <h3 className="font-extrabold text-lg text-slate-900">
+                  {diasDaSemana[0].toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                </h3>
+
+                <button onClick={() => {
+                  const next = new Date(currentWeekStart);
+                  next.setDate(next.getDate() + 7);
+                  setCurrentWeekStart(next);
+                }} className="p-2 border rounded-xl hover:bg-slate-50"><ChevronRight className="w-5 h-5 text-slate-600" /></button>
               </div>
-              <button 
-                onClick={() => setShowAddApptModal(true)}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 shadow"
-              >
-                <CalendarPlus className="w-4 h-4" /> Novo Agendamento Manual
-              </button>
+
+              <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg border">
+                Semana: {diasDaSemana[0].getDate()} a {diasDaSemana[6].getDate()}
+              </span>
             </div>
 
-            <div className="bg-white rounded-xl border p-6 shadow-sm space-y-3">
-              {proAppointments.filter(a => a.status === 'confirmado').length === 0 ? (
-                <p className="text-slate-500 text-sm">Nenhum agendamento confirmado na agenda.</p>
-              ) : (
-                proAppointments.filter(a => a.status === 'confirmado').map(a => (
-                  <div key={a.id} className="p-4 border rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center bg-slate-50 gap-4">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-bold text-slate-900 text-base">{a.clientes?.nome}</h4>
-                        <span className="text-xs px-2.5 py-0.5 rounded-full font-semibold uppercase bg-emerald-100 text-emerald-800">
-                          Confirmado
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-500">WhatsApp: {a.clientes?.telefone || 'Não informado'}</p>
-                      <p className="text-xs text-indigo-600 font-semibold mt-1">
-                        Serviço: {a.servicos?.nome} — R$ {parseFloat(a.servicos?.preco || 0).toFixed(2)}
-                      </p>
-                      {a.forma_pagamento && (
-                        <p className="text-xs text-slate-500 font-medium">Pagamento: <strong className="text-slate-700">{a.forma_pagamento}</strong></p>
-                      )}
+            {/* GRADE DA AGENDA SEMANAL */}
+            <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
+              {diasDaSemana.map((diaObj, idx) => {
+                const dataIso = diaObj.toISOString().split('T')[0];
+                const apptsDoDia = proAppointments.filter(a => a.data === dataIso && a.status === 'confirmado');
+                const ehHoje = new Date().toISOString().split('T')[0] === dataIso;
+
+                return (
+                  <div key={idx} className={`bg-white rounded-2xl border p-3 min-h-[400px] flex flex-col gap-2 ${ehHoje ? 'border-2 border-indigo-600 bg-indigo-50/10' : ''}`}>
+                    <div className="text-center border-b pb-2">
+                      <span className={`text-xl font-black block ${ehHoje ? 'text-indigo-600' : 'text-slate-800'}`}>{diaObj.getDate()}</span>
+                      <span className="text-xs font-bold text-slate-400 uppercase">{DIAS_NOME[diaObj.getDay()]}</span>
                     </div>
 
-                    <div className="flex items-center gap-3">
-                      <span className="font-bold text-slate-900 text-sm">{a.data?.split('-').reverse().join('/')} às {a.horario}</span>
-                      <button 
-                        onClick={() => enviarConfirmacaoWhatsApp(a.clientes?.nome, a.clientes?.telefone, a.data, a.horario, a.servicos?.nome)}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow"
-                      >
-                        <MessageSquare className="w-4 h-4" /> Lembrete Whats
-                      </button>
+                    <div className="space-y-2 flex-1 mt-2">
+                      {apptsDoDia.length === 0 ? (
+                        <div className="text-center py-8 text-slate-300 text-xs">Sem agendamentos</div>
+                      ) : (
+                        apptsDoDia.map(a => (
+                          <div key={a.id} className="p-3 bg-indigo-600 text-white rounded-xl shadow-sm text-xs space-y-1">
+                            <span className="font-bold block">{a.horario}</span>
+                            <span className="font-semibold block truncate">{a.clientes?.nome}</span>
+                            <span className="text-[10px] text-indigo-100 block truncate">{a.servicos?.nome}</span>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
-                ))
-              )}
+                );
+              })}
             </div>
           </div>
         )}
 
+        {/* MENU SOLICITAÇÕES VIA LINK */}
         {proTab === 'aprovacao' && (
-          <div>
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-                <Inbox className="w-7 h-7 text-indigo-600" /> Solicitados via Link (Aguardando Aprovação)
-              </h2>
-              <p className="text-sm text-slate-500 mt-1">Aprove ou recuse os pedidos de agendamento enviados pelas clientes através do link.</p>
-            </div>
-
-            <div className="bg-white rounded-xl border p-6 shadow-sm space-y-3">
-              {proAppointments.filter(a => a.status === 'pendente').length === 0 ? (
-                <div className="text-center py-8 text-slate-500 space-y-2">
-                  <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto opacity-80" />
-                  <p className="font-semibold text-slate-700">Tudo limpo!</p>
-                  <p className="text-xs">Não há nenhuma solicitação pendente no momento.</p>
+          <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
+            <h3 className="font-bold text-slate-900 text-lg">Aprovação de Agendamentos Efetivados pelo Link</h3>
+            {proAppointments.filter(a => a.status === 'pendente').length === 0 ? (
+              <p className="text-slate-500 text-sm">Nenhuma solicitação pendente no momento.</p>
+            ) : (
+              proAppointments.filter(a => a.status === 'pendente').map(a => (
+                <div key={a.id} className="p-4 border-2 border-amber-200 bg-amber-50/40 rounded-xl flex justify-between items-center">
+                  <div>
+                    <h4 className="font-bold text-slate-900">{a.clientes?.nome} ({a.clientes?.telefone})</h4>
+                    <p className="text-xs text-slate-600">{a.servicos?.nome} — {a.data?.split('-').reverse().join('/')} às {a.horario}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => handleUpdateApptStatus(a.id, 'confirmado')} className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow">Aprovar</button>
+                    <button onClick={() => handleUpdateApptStatus(a.id, 'cancelado')} className="bg-rose-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow">Recusar</button>
+                  </div>
                 </div>
-              ) : (
-                proAppointments.filter(a => a.status === 'pendente').map(a => (
-                  <div key={a.id} className="p-4 border-2 border-amber-200 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center bg-amber-50/40 gap-4">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-bold text-slate-900 text-base">{a.clientes?.nome}</h4>
-                        <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-amber-200 text-amber-900 uppercase">
-                          Pendente
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-600">WhatsApp: {a.clientes?.telefone || 'Não informado'}</p>
-                      <p className="text-xs text-indigo-700 font-bold mt-1">
-                        Serviço: {a.servicos?.nome} — R$ {parseFloat(a.servicos?.preco || 0).toFixed(2)}
-                      </p>
-                      {a.forma_pagamento && (
-                        <p className="text-xs text-slate-600 font-medium">Pagamento Escolhido: <strong className="text-slate-900">{a.forma_pagamento}</strong></p>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <span className="font-bold text-slate-900 text-base block">{a.data?.split('-').reverse().join('/')}</span>
-                        <span className="text-xs font-semibold text-slate-600 block">às {a.horario}</span>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <button 
-                          onClick={() => handleUpdateApptStatus(a.id, 'confirmado')}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-4 py-2.5 rounded-lg font-bold flex items-center gap-1 shadow transition"
-                        >
-                          <Check className="w-4 h-4" /> Aprovar
-                        </button>
-                        <button 
-                          onClick={() => handleUpdateApptStatus(a.id, 'cancelado')}
-                          className="bg-rose-600 hover:bg-rose-700 text-white text-xs px-4 py-2.5 rounded-lg font-bold flex items-center gap-1 shadow transition"
-                        >
-                          <X className="w-4 h-4" /> Recusar
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
-        {proTab === 'servicos' && (
-          <div>
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h2 className="text-2xl font-bold text-slate-900">Serviços & Produtos</h2>
-                <p className="text-sm text-slate-500 mt-1">Clique sobre o item para ver a descrição completa e a duração.</p>
-              </div>
-              <button 
-                onClick={handleOpenAddServiceModal} 
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 shadow"
-              >
-                <Plus className="w-4 h-4" /> Cadastrar Novo Serviço/Produto
-              </button>
-            </div>
-
-            <div className="bg-white rounded-xl border p-6 shadow-sm space-y-3">
-              {proServices.length === 0 ? (
-                <p className="text-slate-500 text-sm">Nenhum serviço ou produto cadastrado ainda.</p>
-              ) : (
-                proServices.map(s => {
-                  const isExpanded = expandedServiceId === s.id;
-                  return (
-                    <div key={s.id} className="border rounded-xl bg-slate-50 overflow-hidden transition">
-                      <div 
-                        onClick={() => setExpandedServiceId(isExpanded ? null : s.id)}
-                        className="p-4 flex justify-between items-center cursor-pointer hover:bg-slate-100/80 transition"
-                      >
-                        <div className="flex items-center gap-3">
-                          {isExpanded ? <ChevronUp className="w-5 h-5 text-indigo-600" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
-                          <span className="font-bold text-slate-900 text-base">{s.nome}</span>
-                        </div>
-
-                        <div className="flex items-center gap-4">
-                          <span className="font-bold text-emerald-700 text-base">R$ {parseFloat(s.preco).toFixed(2)}</span>
-                          
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); handleOpenEditServiceModal(s); }}
-                            className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); handleDeleteService(s.id); }}
-                            className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {isExpanded && (
-                        <div className="p-4 border-t bg-white space-y-2 text-sm text-slate-600">
-                          <div className="flex items-center gap-2 font-semibold text-slate-700">
-                            <Clock className="w-4 h-4 text-indigo-600" />
-                            <span>Tempo de Procedimento: <strong className="text-slate-900">{s.duracao_minutos || 30} minutos</strong></span>
-                          </div>
-                          <div>
-                            <span className="font-semibold text-slate-700 block mb-1">Descrição do Serviço/Produto:</span>
-                            <p className="bg-slate-50 p-3 rounded-lg border text-slate-600 text-xs leading-relaxed">
-                              {s.descricao || 'Nenhuma descrição informada para este item.'}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        )}
-
-        {proTab === 'clientes' && (
-          <div>
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h2 className="text-2xl font-bold text-slate-900">Minhas Clientes</h2>
-                <p className="text-sm text-slate-500 mt-1">Cadastre clientes e envie o link de agendamento por WhatsApp.</p>
-              </div>
-              <button 
-                onClick={() => setShowAddClientModal(true)}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 shadow"
-              >
-                <UserPlus className="w-4 h-4" /> Cadastrar Nova Cliente
-              </button>
-            </div>
-
-            <div className="bg-white rounded-xl border p-6 shadow-sm space-y-3">
-              {proClients.length === 0 ? (
-                <p className="text-slate-500 text-sm">Nenhuma cliente cadastrada ainda.</p>
-              ) : (
-                proClients.map(c => (
-                  <div key={c.id} className="p-4 border rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center bg-slate-50 gap-4">
-                    <div>
-                      <h4 className="font-bold text-slate-900 text-base">{c.nome}</h4>
-                      <p className="text-xs text-slate-500">WhatsApp: {c.telefone || 'Não informado'}</p>
-                    </div>
-
-                    <button 
-                      onClick={() => enviarConfirmacaoWhatsApp(c.nome, c.telefone, '', '', '')}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3.5 py-2 rounded-lg font-semibold flex items-center gap-2 shadow transition"
-                    >
-                      <MessageSquare className="w-4 h-4" /> Enviar Mensagem Whats
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
-        {proTab === 'config' && (
-          <div className="space-y-8">
-            <div>
-              <h2 className="text-2xl font-bold text-slate-900">Horários de Atendimento & Dias Off</h2>
-              <p className="text-sm text-slate-500 mt-1">Configure o expediente semanal e adicione datas específicas de folga ou feriado.</p>
-            </div>
-
-            {configSuccess && (
-              <div className="p-3 bg-emerald-50 text-emerald-700 text-xs rounded-lg border border-emerald-200">
-                {configSuccess}
-              </div>
+              ))
             )}
+          </div>
+        )}
 
-            <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
-              <h3 className="font-bold text-slate-900 text-base border-b pb-3 flex items-center gap-2">
-                <Clock className="w-5 h-5 text-indigo-600" /> Grade Semanal de Atendimento
-              </h3>
+        {/* MENU CLIENTES COM CAMPOS AMPLIADOS */}
+        {proTab === 'clientes' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold text-slate-900 text-xl">Cadastro Completo de Clientes</h3>
+              <button onClick={() => setShowAddClientModal(true)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-xs shadow flex items-center gap-1.5">
+                <UserPlus className="w-4 h-4" /> Cadastrar Cliente
+              </button>
+            </div>
 
-              <form onSubmit={salvarHorarioSemana} className="space-y-3">
-                {weeklySchedule.map((item, idx) => (
-                  <div key={item.dia_semana} className="p-3 border rounded-xl bg-slate-50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 w-44">
-                      <input 
-                        type="checkbox" 
-                        id={`dia-${item.dia_semana}`}
-                        checked={item.ativo} 
-                        onChange={e => handleWeeklyScheduleChange(idx, 'ativo', e.target.checked)}
-                        className="w-4 h-4 text-indigo-600 rounded cursor-pointer"
-                      />
-                      <label htmlFor={`dia-${item.dia_semana}`} className="font-bold text-sm text-slate-800 cursor-pointer">
-                        {item.nome}
-                      </label>
+            <div className="bg-white rounded-xl border p-6 shadow-sm space-y-3">
+              {proClients.map(c => (
+                <div key={c.id} className="p-4 border rounded-xl bg-slate-50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-xs">
+                  <div>
+                    <h4 className="font-bold text-slate-900 text-sm">{c.nome}</h4>
+                    <p className="text-slate-600">WhatsApp: {c.telefone || 'N/I'}</p>
+                    {c.endereco && <p className="text-slate-500">Endereço: {c.endereco}</p>}
+                    {c.preferencia_profissional && <p className="text-indigo-600 font-semibold">Pref. Profissional: {c.preferencia_profissional}</p>}
+                    {c.observacoes && <p className="text-slate-500 italic mt-1">Obs: {c.observacoes}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* MENU HORÁRIOS DA SEMANA E ALMOÇO */}
+        {proTab === 'config' && (
+          <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
+            <h3 className="font-bold text-slate-900 text-lg border-b pb-3">Ajuste de Horários de Atendimento & Almoço</h3>
+            
+            {configSuccess && <div className="p-3 bg-emerald-50 text-emerald-700 text-xs rounded-lg border">{configSuccess}</div>}
+
+            <form onSubmit={salvarHorarioSemana} className="space-y-4">
+              {weeklySchedule.map((item, idx) => (
+                <div key={item.dia_semana} className="p-4 border rounded-xl bg-slate-50 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <input type="checkbox" checked={item.ativo} onChange={e => {
+                        const updated = [...weeklySchedule];
+                        updated[idx].ativo = e.target.checked;
+                        setWeeklySchedule(updated);
+                      }} className="w-4 h-4 text-indigo-600 rounded" />
+                      <span className="font-bold text-sm text-slate-800">{item.nome}</span>
                     </div>
 
-                    {item.ativo ? (
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className="text-slate-500">Das</span>
-                        <input 
-                          type="time" 
-                          value={item.hora_inicio} 
-                          onChange={e => handleWeeklyScheduleChange(idx, 'hora_inicio', e.target.value)}
-                          className="border rounded-lg p-2 text-xs text-slate-800"
-                        />
-                        <span className="text-slate-500">às</span>
-                        <input 
-                          type="time" 
-                          value={item.hora_fim} 
-                          onChange={e => handleWeeklyScheduleChange(idx, 'hora_fim', e.target.value)}
-                          className="border rounded-lg p-2 text-xs text-slate-800"
-                        />
-                      </div>
-                    ) : (
-                      <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-rose-100 text-rose-700">
-                        Dia Fechado (Sem Atendimento)
-                      </span>
+                    {item.ativo && (
+                      <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer">
+                        <input type="checkbox" checked={item.com_almoco} onChange={e => {
+                          const updated = [...weeklySchedule];
+                          updated[idx].com_almoco = e.target.checked;
+                          setWeeklySchedule(updated);
+                        }} className="rounded text-indigo-600" />
+                        Habilitar Pausa para Almoço
+                      </label>
                     )}
                   </div>
-                ))}
 
-                <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-2.5 rounded-lg text-sm shadow transition">
-                  Salvar Grade Semanal
-                </button>
-              </form>
-            </div>
-
-            <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
-              <h3 className="font-bold text-slate-900 text-base border-b pb-3 flex items-center gap-2">
-                <CalendarOff className="w-5 h-5 text-rose-600" /> Folgas e Feriados Específicos (Dia Off)
-              </h3>
-
-              <form onSubmit={handleAddOffDay} className="flex flex-col sm:flex-row gap-3 items-end">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Data Específica</label>
-                  <input 
-                    type="date" 
-                    required 
-                    value={newOffDate} 
-                    onChange={e => setNewOffDate(e.target.value)} 
-                    className="border rounded-lg p-2.5 text-sm"
-                  />
-                </div>
-
-                <div className="flex-1">
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Motivo (Opcional)</label>
-                  <input 
-                    type="text" 
-                    value={newOffMotivo} 
-                    onChange={e => setNewOffMotivo(e.target.value)} 
-                    placeholder="Ex: Feriado de Natal, Folga Médica" 
-                    className="w-full border rounded-lg p-2.5 text-sm"
-                  />
-                </div>
-
-                <button type="submit" className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-5 py-2.5 rounded-lg text-sm shadow transition flex items-center gap-1.5">
-                  <Plus className="w-4 h-4" /> Cadastrar Folga
-                </button>
-              </form>
-
-              <div className="space-y-2 mt-4 pt-4 border-t">
-                {offDays.length === 0 ? (
-                  <p className="text-slate-500 text-xs">Nenhuma folga ou feriado específico cadastrado.</p>
-                ) : (
-                  offDays.map(o => (
-                    <div key={o.id} className="p-3 border rounded-xl bg-rose-50/50 flex justify-between items-center text-xs">
-                      <div className="flex items-center gap-3">
-                        <span className="font-bold text-rose-800 text-sm">
-                          {o.data.split('-').reverse().join('/')}
-                        </span>
-                        <span className="text-slate-600 font-medium">— {o.motivo}</span>
+                  {item.ativo && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-600">Atendimento:</span>
+                        <input type="time" value={item.hora_inicio} onChange={e => {
+                          const updated = [...weeklySchedule];
+                          updated[idx].hora_inicio = e.target.value;
+                          setWeeklySchedule(updated);
+                        }} className="border rounded p-1.5" />
+                        <span>às</span>
+                        <input type="time" value={item.hora_fim} onChange={e => {
+                          const updated = [...weeklySchedule];
+                          updated[idx].hora_fim = e.target.value;
+                          setWeeklySchedule(updated);
+                        }} className="border rounded p-1.5" />
                       </div>
 
-                      <button 
-                        onClick={() => handleDeleteOffDay(o.id)}
-                        className="p-1.5 text-rose-600 hover:bg-rose-100 rounded-lg transition"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {item.com_almoco && (
+                        <div className="flex items-center gap-2 bg-amber-50 p-2 rounded-lg border border-amber-200">
+                          <span className="font-bold text-amber-800">Almoço:</span>
+                          <input type="time" value={item.hora_inicio_almoco} onChange={e => {
+                            const updated = [...weeklySchedule];
+                            updated[idx].hora_inicio_almoco = e.target.value;
+                            setWeeklySchedule(updated);
+                          }} className="border rounded p-1.5" />
+                          <span>às</span>
+                          <input type="time" value={item.hora_fim_almoco} onChange={e => {
+                            const updated = [...weeklySchedule];
+                            updated[idx].hora_fim_almoco = e.target.value;
+                            setWeeklySchedule(updated);
+                          }} className="border rounded p-1.5" />
+                        </div>
+                      )}
                     </div>
-                  ))
-                )}
-              </div>
+                  )}
+                </div>
+              ))}
+
+              <button type="submit" className="bg-indigo-600 text-white font-bold px-6 py-2.5 rounded-lg text-sm shadow">
+                Salvar Horários de Atendimento
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* DEMAIS MENUS (SERVIÇOS) */}
+        {proTab === 'servicos' && (
+          <div className="bg-white rounded-xl border p-6 shadow-sm space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold text-slate-900 text-lg">Serviços e Produtos</h3>
+              <button onClick={handleOpenAddServiceModal} className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-bold">+ Novo Serviço</button>
             </div>
+            {proServices.map(s => (
+              <div key={s.id} className="p-3 border rounded-lg flex justify-between items-center text-xs">
+                <div>
+                  <span className="font-bold text-slate-900">{s.nome}</span>
+                  <p className="text-slate-500">R$ {parseFloat(s.preco).toFixed(2)} — {s.duracao_minutos || 30} min</p>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </main>
 
-      {showServiceModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
-            <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="font-bold text-slate-900 text-lg">
-                {editingServiceId ? 'Editar Serviço / Produto' : 'Novo Serviço / Produto'}
-              </h3>
-              <button onClick={() => setShowServiceModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
-            </div>
-
-            {serviceError && <div className="p-3 bg-rose-50 text-rose-700 text-xs rounded-lg border border-rose-200">{serviceError}</div>}
-
-            <form onSubmit={handleSaveService} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Nome do Serviço ou Produto</label>
-                <input type="text" required value={serviceName} onChange={e => setServiceName(e.target.value)} placeholder="Ex: Corte Feminino" className="w-full border rounded-lg p-2.5 text-sm" />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Preço (R$)</label>
-                  <input type="number" step="0.01" required value={servicePrice} onChange={e => setServicePrice(e.target.value)} placeholder="50.00" className="w-full border rounded-lg p-2.5 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Duração (Minutos)</label>
-                  <input type="number" required value={serviceDuration} onChange={e => setServiceDuration(e.target.value)} placeholder="30" className="w-full border rounded-lg p-2.5 text-sm" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Descrição do Procedimento</label>
-                <textarea rows="3" value={serviceDesc} onChange={e => setServiceDesc(e.target.value)} placeholder="Descreva os detalhes..." className="w-full border rounded-lg p-2.5 text-sm"></textarea>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-2 border-t">
-                <button type="button" onClick={() => setShowServiceModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
-                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">
-                  {editingServiceId ? 'Salvar Alterações' : 'Cadastrar Serviço'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
+      {/* MODAL CADASTRAR CLIENTE COMPLETO */}
       {showAddClientModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
             <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="font-bold text-slate-900 text-lg">Cadastrar Nova Cliente</h3>
+              <h3 className="font-bold text-slate-900 text-lg">Nova Cliente (Completo)</h3>
               <button onClick={() => setShowAddClientModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
             </div>
 
-            {clientError && <div className="p-3 bg-rose-50 text-rose-700 text-xs rounded-lg border border-rose-200">{clientError}</div>}
-
-            <form onSubmit={handleAddClient} className="space-y-4">
+            <form onSubmit={handleAddClientExt} className="space-y-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Nome Completo</label>
-                <input type="text" required value={newClientName} onChange={e => setNewClientName(e.target.value)} placeholder="Ex: Mariana Silva" className="w-full border rounded-lg p-2.5 text-sm" />
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nome Completo *</label>
+                <input type="text" required value={newClientName} onChange={e => setNewClientName(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
               </div>
-
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp / Telefone</label>
-                <input type="tel" required value={newClientPhone} onChange={e => setNewClientPhone(e.target.value)} placeholder="(47) 99999-9999" className="w-full border rounded-lg p-2.5 text-sm" />
+                <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp / Telefone *</label>
+                <input type="tel" required value={newClientPhone} onChange={e => setNewClientPhone(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Endereço Residencial (Opcional)</label>
+                <input type="text" value={newClientEndereco} onChange={e => setNewClientEndereco(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Preferência por Profissional (Opcional)</label>
+                <input type="text" value={newClientPrefPro} onChange={e => setNewClientPrefPro(e.target.value)} placeholder="Ex: Cabeleireira Maria" className="w-full border rounded-lg p-2.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Observações (Opcional)</label>
+                <textarea rows="2" value={newClientObs} onChange={e => setNewClientObs(e.target.value)} placeholder="Alergias, preferências..." className="w-full border rounded-lg p-2.5 text-sm"></textarea>
               </div>
 
               <div className="flex justify-end gap-3 pt-2 border-t">
-                <button type="button" onClick={() => setShowAddClientModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
-                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Salvar Cliente</button>
+                <button type="button" onClick={() => setShowAddClientModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
+                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-lg shadow">Salvar Cliente</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
+      {/* MODAL SERVIÇO */}
+      {showServiceModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-bold text-slate-900 text-lg">Novo Serviço</h3>
+              <button onClick={() => setShowServiceModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
+            </div>
+            <form onSubmit={handleSaveService} className="space-y-3">
+              <input type="text" required placeholder="Nome do Serviço" value={serviceName} onChange={e => setServiceName(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+              <input type="number" step="0.01" required placeholder="Preço (R$)" value={servicePrice} onChange={e => setServicePrice(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
+              <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold text-xs">Salvar</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL AGENDAMENTO MANUAL */}
       {showAddApptModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
             <div className="flex justify-between items-center border-b pb-3">
               <h3 className="font-bold text-slate-900 text-lg">Agendamento Manual</h3>
               <button onClick={() => setShowAddApptModal(false)}><XCircle className="w-5 h-5 text-slate-400" /></button>
             </div>
-
-            <form onSubmit={handleAddManualAppointment} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Tipo de Cliente</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-                    <input type="radio" name="clientType" checked={apptClientType === 'existing'} onChange={() => setApptClientType('existing')} /> Cliente Cadastrada
-                  </label>
-                  <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-                    <input type="radio" name="clientType" checked={apptClientType === 'new'} onChange={() => setApptClientType('new')} /> Nova Cliente
-                  </label>
-                </div>
+            <form onSubmit={handleAddManualAppointment} className="space-y-3">
+              <select required value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm">
+                <option value="">Selecione a Cliente...</option>
+                {proClients.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+              </select>
+              <select required value={manualServiceId} onChange={e => setManualServiceId(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm">
+                <option value="">Selecione o Serviço...</option>
+                {proServices.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+              </select>
+              <div className="grid grid-cols-2 gap-2">
+                <input type="date" required value={manualDate} onChange={e => setManualDate(e.target.value)} className="border rounded-lg p-2 text-sm" />
+                <input type="time" required value={manualTime} onChange={e => setManualTime(e.target.value)} className="border rounded-lg p-2 text-sm" />
               </div>
-
-              {apptClientType === 'existing' ? (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Selecione a Cliente</label>
-                  <select required value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm">
-                    <option value="">Selecione...</option>
-                    {proClients.map(c => <option key={c.id} value={c.id}>{c.nome} ({c.telefone})</option>)}
-                  </select>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">Nome</label>
-                    <input type="text" required value={manualClientName} onChange={e => setManualClientName(e.target.value)} placeholder="Ex: Maria" className="w-full border rounded-lg p-2.5 text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp</label>
-                    <input type="tel" required value={manualClientPhone} onChange={e => setManualClientPhone(e.target.value)} placeholder="(47) 99999-9999" className="w-full border rounded-lg p-2.5 text-sm" />
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Serviço</label>
-                <select required value={manualServiceId} onChange={e => setManualServiceId(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm">
-                  <option value="">Selecione o serviço...</option>
-                  {proServices.map(s => <option key={s.id} value={s.id}>{s.nome} — R$ {parseFloat(s.preco).toFixed(2)}</option>)}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Data</label>
-                  <input type="date" required value={manualDate} onChange={e => setManualDate(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Horário</label>
-                  <input type="time" required value={manualTime} onChange={e => setManualTime(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm" />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-3 border-t">
-                <button type="button" onClick={() => setShowAddApptModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
-                <button type="submit" className="px-4 py-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow">Salvar Agendamento</button>
-              </div>
+              <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold text-xs shadow">Agendar</button>
             </form>
           </div>
         </div>
