@@ -37,7 +37,8 @@ import {
   Unlock,
   ToggleLeft,
   ToggleRight,
-  Inbox
+  Inbox,
+  AlertCircle
 } from 'lucide-react';
 
 const SUPABASE_URL = 'https://ujdaesnmqhkzefqdwygk.supabase.co';
@@ -71,7 +72,7 @@ export default function App() {
   const publicProId = queryParams.get('pro');
 
   // Master
-  const [activeTab, setActiveTab] = useState('master_profs');
+  const [activeTab, setActiveTab] = useState('master_profs'); // master_profs | master_vencimentos
   const [professionals, setProfessionals] = useState([]);
   const [licencas, setLicencas] = useState([]);
   const [expandedProId, setExpandedProId] = useState(null);
@@ -253,7 +254,7 @@ export default function App() {
   };
 
   const toggleStatusProfissional = async (proId, currentStatus) => {
-    const newStatus = currentStatus === 'active' ? 'blocked' : 'active';
+    const newStatus = currentStatus === 'blocked' ? 'active' : 'blocked';
     const { error } = await supabase.from('perfis').update({ status: newStatus }).eq('id', proId);
     if (!error) loadAppData();
     else alert('Erro ao alterar status.');
@@ -267,7 +268,7 @@ export default function App() {
     }
     const partes = (dataVenc || '').split('-');
     const dataFmt = partes.length === 3 ? `${partes[2]}/${partes[1]}/${partes[0]}` : dataVenc;
-    const msg = `Olá, *${nome}*! %0A%0ASua licença do sistema *AgendaPro Hair* vence no dia *${dataFmt}*. %0A%0APara evitar a interrupção do serviço e do link de agendamentos, por favor realize a renovação do seu plano. %0A%0AQualquer dúvida estamos à disposição! 😊`;
+    const msg = `Olá, *${nome}*! %0A%0ASua licença do sistema *AgendaPro Hair* vence em *${dataFmt}*. %0A%0APara evitar a interrupção do serviço e do link de agendamentos, por favor realize a renovação do seu plano. %0A%0AQualquer dúvida estamos à disposição! 😊`;
 
     window.open(`https://wa.me/55${numLimpo}?text=${msg}`, '_blank');
   };
@@ -546,7 +547,7 @@ export default function App() {
     }
   };
 
-  // Submissão Pública
+  // Submissão Pública com Tratamento de Erro de Cliente
   const handlePublicBookingSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -594,25 +595,29 @@ export default function App() {
         return;
       }
 
-      let { data: cli } = await supabase.from('clientes')
-        .select('*')
+      // Tentar localizar cliente pelo WhatsApp
+      let clientId = null;
+      const { data: existingCli } = await supabase.from('clientes')
+        .select('id')
         .eq('telefone', clientPhone)
         .eq('profissional_id', publicProId)
-        .maybeSingle();
+        .limit(1);
 
-      if (!cli) {
-        const { data: newCli, error: cliInsertErr } = await supabase.from('clientes').insert([{ 
+      if (existingCli && existingCli.length > 0) {
+        clientId = existingCli[0].id;
+      } else {
+        const { data: newCli, error: cliErr } = await supabase.from('clientes').insert([{ 
           nome: clientName, 
           telefone: clientPhone, 
           profissional_id: publicProId 
-        }]).select().single();
+        }]).select('id').single();
 
-        if (cliInsertErr) throw cliInsertErr;
-        cli = newCli;
+        if (cliErr) throw cliErr;
+        clientId = newCli.id;
       }
 
       const { error: apptInsertErr } = await supabase.from('agendamentos').insert([{ 
-        cliente_id: cli.id, 
+        cliente_id: clientId, 
         profissional_id: publicProId, 
         servico_id: selectedService, 
         data: bookingDate, 
@@ -626,7 +631,7 @@ export default function App() {
       setPublicSuccess(true);
     } catch (e) {
       console.error(e);
-      alert('Erro ao solicitar agendamento: ' + (e.message || 'Verifique os dados.'));
+      alert('Erro ao solicitar agendamento: ' + (e.message || 'Verifique as permissões no banco.'));
     }
   };
 
@@ -794,6 +799,17 @@ export default function App() {
 
   // PAINEL MASTER
   if (userProfile.role === 'master') {
+    // Filtrar salões com vencimento em <= 7 dias ou expirados
+    const saloesComVencimentoProximo = professionals.filter(p => {
+      if (p.role === 'master') return false;
+      const lic = licencas.find(l => l.profissional_id === p.id);
+      if (!lic?.data_vencimento) return false;
+      const hoje = new Date();
+      const venc = new Date(lic.data_vencimento);
+      const diffDays = Math.ceil((venc - hoje) / (1000 * 60 * 60 * 24));
+      return diffDays <= 7; // 7 dias ou menos (incluindo expirados)
+    });
+
     return (
       <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col md:flex-row font-sans">
         <aside className="w-full md:w-64 bg-slate-900 text-slate-100 flex flex-col border-r border-slate-800">
@@ -807,7 +823,19 @@ export default function App() {
 
           <nav className="flex-1 p-4 space-y-1">
             <button onClick={() => setActiveTab('master_profs')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'master_profs' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
-              <Users className="w-5 h-5" /> Salões & Assinaturas
+              <Users className="w-5 h-5" /> Salões Cadastrados
+            </button>
+
+            {/* NOVO MENU VENCIMENTOS (< 7 DIAS) */}
+            <button onClick={() => setActiveTab('master_vencimentos')} className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'master_vencimentos' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
+              <div className="flex items-center gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-400" /> Vencimentos (&lt; 7 Dias)
+              </div>
+              {saloesComVencimentoProximo.length > 0 && (
+                <span className="bg-amber-500 text-slate-900 font-bold text-xs px-2 py-0.5 rounded-full">
+                  {saloesComVencimentoProximo.length}
+                </span>
+              )}
             </button>
           </nav>
 
@@ -819,139 +847,197 @@ export default function App() {
         </aside>
 
         <main className="flex-1 p-8 overflow-y-auto">
-          <div className="flex justify-between items-center mb-6">
+          {/* TAB SALÕES CADASTRADOS */}
+          {activeTab === 'master_profs' && (
             <div>
-              <h2 className="text-2xl font-bold text-slate-900">Acompanhamento de Salões & Assinaturas</h2>
-              <p className="text-sm text-slate-500 mt-1">Gerencie vencimentos, endereços e liberação de agendamento por link.</p>
-            </div>
-            <button onClick={() => setShowAddProModal(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 shadow">
-              <UserPlus className="w-4 h-4" /> Cadastrar Novo Salão
-            </button>
-          </div>
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-900">Salões Cadastrados</h2>
+                  <p className="text-sm text-slate-500 mt-1">Visão geral de todos os acessos criados no sistema.</p>
+                </div>
+                <button onClick={() => setShowAddProModal(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg font-semibold text-sm flex items-center gap-2 shadow">
+                  <UserPlus className="w-4 h-4" /> Cadastrar Novo Salão
+                </button>
+              </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-3">
-            {professionals.filter(p => p.role !== 'master').map(p => {
-              const lic = licencas.find(l => l.profissional_id === p.id);
-              const isExpanded = expandedProId === p.id;
-              const linkPublico = `${window.location.origin}/?pro=${p.id}`;
+              <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-3">
+                {professionals.filter(p => p.role !== 'master').map(p => {
+                  const lic = licencas.find(l => l.profissional_id === p.id);
+                  const isExpanded = expandedProId === p.id;
 
-              // Cálculo de expiração
-              let diasRestantes = null;
-              let exspirado = false;
-              if (lic?.data_vencimento) {
-                const hoje = new Date();
-                const venc = new Date(lic.data_vencimento);
-                const diffTime = venc - hoje;
-                diasRestantes = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                if (diasRestantes < 0) exspirado = true;
-              }
+                  let diasRestantes = null;
+                  let exspirado = false;
+                  if (lic?.data_vencimento) {
+                    const hoje = new Date();
+                    const venc = new Date(lic.data_vencimento);
+                    diasRestantes = Math.ceil((venc - hoje) / (1000 * 60 * 60 * 24));
+                    if (diasRestantes < 0) exspirado = true;
+                  }
 
-              return (
-                <div key={p.id} className="border rounded-xl bg-slate-50 overflow-hidden transition">
-                  {/* Linha Resumo Expansível */}
-                  <div 
-                    onClick={() => setExpandedProId(isExpanded ? null : p.id)}
-                    className="p-4 flex flex-col md:flex-row justify-between items-start md:items-center cursor-pointer hover:bg-slate-100/80 transition gap-4"
-                  >
-                    <div className="flex items-center gap-3">
-                      {isExpanded ? <ChevronUp className="w-5 h-5 text-indigo-600" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-bold text-slate-900 text-base">{p.nome}</h4>
-                          <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                            p.status === 'blocked' ? 'bg-rose-100 text-rose-800' :
-                            exspirado ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
-                          }`}>
-                            {p.status === 'blocked' ? 'Conta Bloqueada' : exspirado ? 'Licença Expirada' : 'Ativo'}
-                          </span>
+                  return (
+                    <div key={p.id} className="border rounded-xl bg-slate-50 overflow-hidden transition">
+                      <div 
+                        onClick={() => setExpandedProId(isExpanded ? null : p.id)}
+                        className="p-4 flex flex-col md:flex-row justify-between items-start md:items-center cursor-pointer hover:bg-slate-100/80 transition gap-4"
+                      >
+                        <div className="flex items-center gap-3">
+                          {isExpanded ? <ChevronUp className="w-5 h-5 text-indigo-600" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-bold text-slate-900 text-base">{p.nome}</h4>
+                              <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                                p.status === 'blocked' ? 'bg-rose-100 text-rose-800' :
+                                exspirado ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                              }`}>
+                                {p.status === 'blocked' ? 'Bloqueado' : exspirado ? 'Expirado' : 'Ativo'}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-500">{p.email} • WhatsApp: {p.telefone || 'Não informado'}</p>
+                          </div>
                         </div>
-                        <p className="text-xs text-slate-500">{p.email} • WhatsApp: {p.telefone || 'Não informado'}</p>
-                      </div>
-                    </div>
 
-                    <div className="flex flex-wrap items-center gap-3">
-                      {lic && (
-                        <div className="text-right text-xs">
-                          <span className="text-slate-500 block">Vencimento: <strong className="text-slate-800">{lic.data_vencimento?.split('-').reverse().join('/')}</strong></span>
-                          <span className={`font-bold block ${exspirado ? 'text-rose-600' : diasRestantes <= 5 ? 'text-amber-600' : 'text-emerald-600'}`}>
-                            {exspirado ? `Vencido há ${Math.abs(diasRestantes)} dias` : `${diasRestantes} dias restantes`}
-                          </span>
+                        <div className="flex items-center gap-3">
+                          {lic && (
+                            <div className="text-right text-xs">
+                              <span className="text-slate-500 block">Vencimento: <strong className="text-slate-800">{lic.data_vencimento?.split('-').reverse().join('/')}</strong></span>
+                              <span className={`font-bold block ${exspirado ? 'text-rose-600' : diasRestantes <= 5 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                                {exspirado ? `Vencido há ${Math.abs(diasRestantes)} dias` : `${diasRestantes} dias restantes`}
+                              </span>
+                            </div>
+                          )}
+
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleOpenEditPro(p); }} 
+                            className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {isExpanded && (
+                        <div className="p-4 border-t bg-white space-y-4 text-xs text-slate-600">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-3 rounded-lg border">
+                            <div>
+                              <p className="font-bold text-slate-800 mb-1 flex items-center gap-1">
+                                <MapPin className="w-3.5 h-3.5 text-indigo-600" /> Endereço:
+                              </p>
+                              <p>{p.endereco ? `${p.endereco}, Nº ${p.numero || 'S/N'}` : 'Não informado'}</p>
+                            </div>
+                            <div>
+                              <p className="font-bold text-slate-800 mb-1 flex items-center gap-1">
+                                <CreditCard className="w-3.5 h-3.5 text-indigo-600" /> Licença:
+                              </p>
+                              <p>Ativação: {lic?.data_pagamento?.split('-').reverse().join('/') || 'N/A'} até {lic?.data_vencimento?.split('-').reverse().join('/') || 'N/A'}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                            <div className="flex items-center gap-2 bg-slate-100 px-3 py-2 rounded-lg border">
+                              <span className="font-semibold text-slate-700">Link de Agendamento:</span>
+                              <button 
+                                onClick={() => toggleAgendamentoLink(p.id, p.agendamento_link_ativo !== false)}
+                                className={`flex items-center gap-1 font-bold text-xs px-2.5 py-1 rounded-md transition ${
+                                  p.agendamento_link_ativo !== false ? 'bg-emerald-600 text-white' : 'bg-slate-400 text-white'
+                                }`}
+                              >
+                                {p.agendamento_link_ativo !== false ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
+                                {p.agendamento_link_ativo !== false ? 'Habilitado' : 'Desabilitado'}
+                              </button>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <button 
+                                onClick={() => enviarAvisoVencimentoWhats(p.nome, p.telefone, lic?.data_vencimento)}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow"
+                              >
+                                <BellRing className="w-3.5 h-3.5" /> Lembrete Whats
+                              </button>
+                              <button 
+                                onClick={() => toggleStatusProfissional(p.id, p.status)}
+                                className={`px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow text-white ${
+                                  p.status === 'blocked' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-rose-600 hover:bg-rose-700'
+                                }`}
+                              >
+                                {p.status === 'blocked' ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                                {p.status === 'blocked' ? 'Desbloquear Conta' : 'Desativar Conta'}
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       )}
-
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); handleOpenEditPro(p); }} 
-                        className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
-                        title="Editar Informações do Salão"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
                     </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* NOVO MENU VENCIMENTOS DE ASSINATURA (< 7 DIAS) */}
+          {activeTab === 'master_vencimentos' && (
+            <div>
+              <div className="mb-6">
+                <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+                  <AlertCircle className="w-7 h-7 text-amber-500" /> Assinaturas com Vencimento Próximo
+                </h2>
+                <p className="text-sm text-slate-500 mt-1">Lista exclusiva de salões cujas licenças vencerão em 7 dias ou menos (ou já venceram).</p>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-3">
+                {saloesComVencimentoProximo.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500 space-y-2">
+                    <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
+                    <p className="font-semibold text-slate-700">Tudo em dia!</p>
+                    <p className="text-xs">Nenhum salão possui licença para vencer nos próximos 7 dias.</p>
                   </div>
+                ) : (
+                  saloesComVencimentoProximo.map(p => {
+                    const lic = licencas.find(l => l.profissional_id === p.id);
+                    const hoje = new Date();
+                    const venc = new Date(lic?.data_vencimento);
+                    const diffDays = Math.ceil((venc - hoje) / (1000 * 60 * 60 * 24));
+                    const expirado = diffDays < 0;
 
-                  {/* Conteúdo Expandido */}
-                  {isExpanded && (
-                    <div className="p-4 border-t bg-white space-y-4 text-xs text-slate-600">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-3 rounded-lg border">
+                    return (
+                      <div key={p.id} className="p-4 border-2 border-amber-200 rounded-xl bg-amber-50/40 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                         <div>
-                          <p className="font-bold text-slate-800 mb-1 flex items-center gap-1">
-                            <MapPin className="w-3.5 h-3.5 text-indigo-600" /> Endereço do Salão:
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-slate-900 text-base">{p.nome}</h4>
+                            <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
+                              expirado ? 'bg-rose-100 text-rose-800' : 'bg-amber-200 text-amber-900'
+                            }`}>
+                              {expirado ? 'Já Vencido' : `Vence em ${diffDays} dias`}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600 mt-1">E-mail: {p.email} • WhatsApp: {p.telefone || 'Não informado'}</p>
+                          <p className="text-xs text-slate-700 font-semibold mt-1">
+                            Vencimento da Licença: <strong className="text-slate-900">{lic?.data_vencimento?.split('-').reverse().join('/')}</strong>
                           </p>
-                          <p className="text-slate-600">{p.endereco ? `${p.endereco}, Nº ${p.numero || 'S/N'}` : 'Não cadastrado'}</p>
-                        </div>
-                        <div>
-                          <p className="font-bold text-slate-800 mb-1 flex items-center gap-1">
-                            <CreditCard className="w-3.5 h-3.5 text-indigo-600" /> Período da Licença:
-                          </p>
-                          <p className="text-slate-600">
-                            Início: {lic?.data_pagamento?.split('-').reverse().join('/') || 'N/A'} até {lic?.data_vencimento?.split('-').reverse().join('/') || 'N/A'}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Ações de Gestão Master */}
-                      <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                        {/* Toggle de Agendamento por Link */}
-                        <div className="flex items-center gap-2 bg-slate-100 px-3 py-2 rounded-lg border">
-                          <span className="font-semibold text-slate-700">Agendamento por Link:</span>
-                          <button 
-                            onClick={() => toggleAgendamentoLink(p.id, p.agendamento_link_ativo !== false)}
-                            className={`flex items-center gap-1 font-bold text-xs px-2.5 py-1 rounded-md transition ${
-                              p.agendamento_link_ativo !== false ? 'bg-emerald-600 text-white' : 'bg-slate-400 text-white'
-                            }`}
-                          >
-                            {p.agendamento_link_ativo !== false ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}
-                            {p.agendamento_link_ativo !== false ? 'Habilitado' : 'Desabilitado'}
-                          </button>
                         </div>
 
                         <div className="flex items-center gap-2">
-                          {/* Lembrete WhatsApp */}
                           <button 
                             onClick={() => enviarAvisoVencimentoWhats(p.nome, p.telefone, lic?.data_vencimento)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-4 py-2.5 rounded-lg font-bold flex items-center gap-1.5 shadow transition"
                           >
-                            <BellRing className="w-3.5 h-3.5" /> Enviar Lembrete Whats
+                            <BellRing className="w-4 h-4" /> Cobrar via WhatsApp
                           </button>
-
-                          {/* Bloquear / Desbloquear */}
                           <button 
                             onClick={() => toggleStatusProfissional(p.id, p.status)}
-                            className={`px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 shadow text-white ${
-                              p.status === 'blocked' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-rose-600 hover:bg-rose-700'
+                            className={`text-xs px-3 py-2.5 rounded-lg font-bold text-white shadow ${
+                              p.status === 'blocked' ? 'bg-indigo-600' : 'bg-rose-600'
                             }`}
                           >
-                            {p.status === 'blocked' ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-                            {p.status === 'blocked' ? 'Desbloquear Conta' : 'Desativar Conta'}
+                            {p.status === 'blocked' ? 'Desbloquear' : 'Bloquear'}
                           </button>
                         </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
         </main>
 
         {/* MODAL EDITAR SALÃO */}
@@ -1079,7 +1165,6 @@ export default function App() {
             <Calendar className="w-5 h-5" /> Agendamentos
           </button>
 
-          {/* NOVO MENU DE APROVAÇÃO DEDICADO */}
           <button onClick={() => setProTab('aprovacao')} className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium ${proTab === 'aprovacao' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}>
             <div className="flex items-center gap-3">
               <Inbox className="w-5 h-5" /> Aprovação de Agendamento
@@ -1195,7 +1280,7 @@ export default function App() {
           </div>
         )}
 
-        {/* TAB EXCLUSIVA DE APROVAÇÃO DE AGENDAMENTOS */}
+        {/* TAB APROVAÇÃO DE AGENDAMENTOS */}
         {proTab === 'aprovacao' && (
           <div>
             <div className="mb-6">
@@ -1298,7 +1383,6 @@ export default function App() {
                           <button 
                             onClick={(e) => { e.stopPropagation(); handleOpenEditServiceModal(s); }}
                             className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
-                            title="Editar Serviço"
                           >
                             <Edit className="w-4 h-4" />
                           </button>
@@ -1306,7 +1390,6 @@ export default function App() {
                           <button 
                             onClick={(e) => { e.stopPropagation(); handleDeleteService(s.id); }}
                             className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                            title="Excluir Serviço"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -1363,10 +1446,10 @@ export default function App() {
                     </div>
 
                     <button 
-                      onClick={() => enviarLinkAgendamentoWhats(c.nome, c.telefone)}
+                      onClick={() => enviarConfirmacaoWhatsApp(c.nome, c.telefone, '', '', '')}
                       className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3.5 py-2 rounded-lg font-semibold flex items-center gap-2 shadow transition"
                     >
-                      <MessageSquare className="w-4 h-4" /> Enviar Link via Whats
+                      <MessageSquare className="w-4 h-4" /> Enviar Mensagem Whats
                     </button>
                   </div>
                 ))
@@ -1490,7 +1573,6 @@ export default function App() {
                       <button 
                         onClick={() => handleDeleteOffDay(o.id)}
                         className="p-1.5 text-rose-600 hover:bg-rose-100 rounded-lg transition"
-                        title="Remover Folga"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
