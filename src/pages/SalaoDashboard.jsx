@@ -119,18 +119,26 @@ export default function SalaoDashboard({
   const handleSaveService = async (e) => {
     e.preventDefault();
     try {
+      const precoNumerico = parseFloat(servicePrice);
+      const duracaoNumerica = parseInt(serviceDuration || 30);
+
+      if (isNaN(precoNumerico)) {
+        alert('Por favor, informe um preço válido.');
+        return;
+      }
+
       if (editingService) {
         const { error } = await supabase.from('servicos').update({
           nome: serviceName,
-          preco: parseFloat(servicePrice),
-          duracao_minutos: parseInt(serviceDuration)
+          preco: precoNumerico,
+          duracao_minutos: duracaoNumerica
         }).eq('id', editingService.id);
         if (error) throw error;
       } else {
         const { error } = await supabase.from('servicos').insert([{
           nome: serviceName,
-          preco: parseFloat(servicePrice),
-          duracao_minutos: parseInt(serviceDuration),
+          preco: precoNumerico,
+          duracao_minutos: duracaoNumerica,
           profissional_id: userProfile.id
         }]);
         if (error) throw error;
@@ -178,7 +186,17 @@ export default function SalaoDashboard({
         finalClientId = newCli.id;
       }
 
-      // Envia em ambas as colunas possíveis para evitar erros de esquema no Supabase
+      if (!finalClientId) {
+        alert('Selecione ou cadastre uma cliente.');
+        return;
+      }
+
+      if (!manualServiceId) {
+        alert('Selecione um serviço.');
+        return;
+      }
+
+      // Envio flexível preenchendo as colunas comuns para evitar conflito de cache do Supabase
       const payloadAppt = {
         cliente_id: finalClientId,
         clientes_id: finalClientId,
@@ -450,7 +468,7 @@ export default function SalaoDashboard({
                 <div key={s.id} className="p-4 border border-slate-800 rounded-xl bg-slate-950 flex justify-between items-center text-xs">
                   <div>
                     <span className="font-bold text-white text-sm block">{s.nome}</span>
-                    <p className="text-slate-400">R$ {parseFloat(s.preco).toFixed(2)} • {s.duracao_minutos || 30} min</p>
+                    <p className="text-slate-400">R$ {parseFloat(s.preco || 0).toFixed(2)} • {s.duracao_minutos || 30} min</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <button onClick={() => {
@@ -758,7 +776,7 @@ export default function SalaoDashboard({
                 <label className="block text-xs font-semibold text-slate-400 mb-1">Serviço *</label>
                 <select required value={manualServiceId} onChange={e => setManualServiceId(e.target.value)} className="w-full bg-slate-950 border border-slate-800 text-white rounded-lg p-2.5 text-sm">
                   <option value="">Selecione o Serviço...</option>
-                  {proServices.map(s => <option key={s.id} value={s.id}>{s.nome} — R$ {parseFloat(s.preco).toFixed(2)}</option>)}
+                  {proServices.map(s => <option key={s.id} value={s.id}>{s.nome} — R$ {parseFloat(s.preco || 0).toFixed(2)}</option>)}
                 </select>
               </div>
 
