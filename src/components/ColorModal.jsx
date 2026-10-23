@@ -1,7 +1,17 @@
 import React from 'react';
 import { XCircle } from 'lucide-react';
 
-export default function ColorModal({ show, onClose, customTopoCor, setCustomTopoCor, customSidebarCor, setCustomSidebarCor, onSave }) {
+export default function ColorModal({ 
+  show, 
+  onClose, 
+  customTopoCor, 
+  setCustomTopoCor, 
+  customSidebarCor, 
+  setCustomSidebarCor,
+  customTextoSidebarCor,
+  setCustomTextoSidebarCor,
+  onSave 
+}) {
   if (!show) return null;
 
   return (
@@ -19,8 +29,13 @@ export default function ColorModal({ show, onClose, customTopoCor, setCustomTopo
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">Cor do Menu Lateral (Sidebar)</label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Cor do Fundo do Menu Lateral (Sidebar)</label>
             <input type="color" value={customSidebarCor} onChange={e => setCustomSidebarCor(e.target.value)} className="w-full h-10 border rounded-lg p-1 cursor-pointer" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Cor dos Textos do Menu Lateral</label>
+            <input type="color" value={customTextoSidebarCor} onChange={e => setCustomTextoSidebarCor(e.target.value)} className="w-full h-10 border rounded-lg p-1 cursor-pointer" />
           </div>
         </div>
 
